@@ -79,3 +79,16 @@ proposals, accepted Gibbs opponents, and rollout response. It then constructs
 the Nash-RS implicit reward with the corrected acceptance rule
 `u <= exp(-g_hat/tau)`. The smoke preference oracle is deterministic and will
 be replaced by the experiment preference model in the PPO integration.
+
+## Nash-RS real preference model
+
+Submit the real preference-model vertical slice with:
+
+```bash
+qsub cluster/hopper/vllm_nash_rs_pm_smoke.pbs
+```
+
+It combines Qwen2.5-0.5B vLLM generations with the MIT-licensed
+`OpenAssistant/reward-model-deberta-v3-large-v2` scalar reward model. Pairwise
+probabilities use the BTL map `sigmoid(r_left-r_right)`. The same oracle API
+also supports weighted mixtures of reward models for later non-BT experiments.
