@@ -1,0 +1,31 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_smoke
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=00:15:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+module load singularity
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.3.0_cuda_12.4_ngc_24.04.sif"
+
+echo "Job ID: ${PBS_JOBID:-unknown}"
+echo "Host: $(hostname)"
+echo "Workdir: $PWD"
+
+# PBS selects and exposes the assigned GPU. Do not set CUDA_VISIBLE_DEVICES.
+singularity exec -e --nv "$IMAGE" python -c \
+  "import torch; print('torch:', torch.__version__); print('cuda:', torch.cuda.is_available()); print('gpu:', torch.cuda.get_device_name(0)); assert torch.cuda.is_available()"
+
+singularity exec -e --nv "$IMAGE" \
+  env PYTHONPATH=src python -m unittest discover -s tests -v
+
+singularity exec -e --nv "$IMAGE" \
+  env PYTHONPATH=src python examples/toy_nash_rs.py
+
+echo "Nash-RS Hopper smoke test completed successfully."
