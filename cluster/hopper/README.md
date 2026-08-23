@@ -18,6 +18,13 @@ qstat -fx JOB_ID
 qgpu_smi JOB_ID
 ```
 
+Follow the logs from the repository root with:
+
+```bash
+tail -f stdout.JOB_ID
+tail -f stderr.JOB_ID
+```
+
 The job requests one H200 for at most 15 minutes, enters the NUS PyTorch
 2.3/CUDA 12.4 container, verifies CUDA, runs the unit tests, and executes the
 toy Nash-RS example. PBS configures the assigned GPU automatically; do not set
