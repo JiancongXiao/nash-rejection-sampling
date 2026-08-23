@@ -43,3 +43,15 @@ bias to the Gibbs target.
 
 See `docs/IMPLEMENTATION_PLAN.md` for the staged OpenRLHF integration plan and
 the fairness contract shared by all methods.
+
+## NUS Hopper smoke test
+
+From the repository root on the Hopper login node:
+
+```bash
+qsub cluster/hopper/smoke_test.pbs
+```
+
+This requests one H200 for at most 15 minutes and verifies CUDA, the unit test
+suite, and the toy Nash-RS run inside the cluster's PyTorch container. See
+`cluster/hopper/README.md` for monitoring commands.
