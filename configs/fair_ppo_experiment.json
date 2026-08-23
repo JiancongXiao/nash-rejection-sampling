@@ -20,14 +20,35 @@
     }
   },
   "methods": {
+    "reward_ppo": {},
+    "self_play_ppo": {
+      "opponents_per_prompt": 8,
+      "reward_scale": 1.0
+    },
+    "nash_md_ppo": {
+      "reference_weight": 0.25,
+      "opponents_per_prompt": 8,
+      "reward_scale": 1.0
+    },
     "nash_rs": {
       "tau": 0.2,
       "b1": 16,
       "b2": 8,
       "proposal_batch_size": 16
     },
-    "nash_md_ppo": {},
-    "mpo_ppo": {},
-    "comal_ppo": {}
+    "mpo_ppo": {
+      "update_interval": 8,
+      "opponents_per_prompt": 8,
+      "reward_scale": 1.0
+    },
+    "egpo_ppo": {
+      "opponents_per_prompt": 8,
+      "reward_scale": 1.0
+    },
+    "comal_ppo": {
+      "inner_iterations": 8,
+      "opponents_per_prompt": 8,
+      "reward_scale": 1.0
+    }
   }
 }

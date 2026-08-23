@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Mapping, Sequence
+from typing import Mapping, Optional, Sequence
 
 
 @dataclass
@@ -11,6 +11,7 @@ class Accounting:
     preference_model_calls: int = 0
     policy_generations: int = 0
     reference_generations: int = 0
+    opponent_generations: int = 0
     generated_tokens: int = 0
     proposals: int = 0
     accepted: int = 0
@@ -31,8 +32,8 @@ class Accounting:
 class OpponentSample:
     prompt: str
     response: str
-    g_hat: float
-    acceptance_probability: float
+    g_hat: Optional[float] = None
+    acceptance_probability: Optional[float] = None
 
 
 @dataclass

@@ -28,3 +28,22 @@ class RewardConstructor(Protocol):
     """The only method-specific boundary used by the shared PPO backbone."""
 
     def construct(self, prompts: Sequence[str], responses: Sequence[str]) -> RewardBatch: ...
+
+
+class ScalarRewardOracle(Protocol):
+    """Return one scalar reward for each prompt/response pair."""
+
+    def score(self, prompts: Sequence[str], responses: Sequence[str]) -> Sequence[float]: ...
+
+
+class GeometricMixtureSampler(Protocol):
+    """Sample from a token- or sequence-level geometric policy mixture."""
+
+    def sample_geometric(
+        self,
+        prompt: str,
+        n: int,
+        current: TextSampler,
+        reference: TextSampler,
+        reference_weight: float,
+    ) -> Sequence[str]: ...

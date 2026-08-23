@@ -43,13 +43,17 @@ adaptations should implement it without modifying the shared trainer.
    acceptance diagnostics, and accounting as JSONL.
 6. Verify the same response set can be replayed through the evaluator.
 
-## Stage 3: unified baselines
+## Stage 3: unified method controllers (completed)
 
+- Reward-PPO and self-play PPO baselines.
 - Nash-MD-PPO: geometric-mixture opponent/reward construction.
-- MPO-PPO: magnetic opponent/reward construction from the paper's pinned
-  specification.
-- COMAL-PPO: preserve the outer reference/meta update; solve each inner
-  regularized subproblem using the shared PPO backend.
+- MPO-PPO: fixed magnetic opponent/reference with periodic synchronization.
+- EGPO-PPO: prediction/correction phases with iteration-start restoration.
+- COMAL-PPO: fixed outer anchor and PPO-based regularized inner game.
+- Backend-agnostic runner enforcing phase restore/snapshot semantics.
+
+## Stage 3b: official-code checks (pending)
+
 - Run official-code sanity checks separately. Label unified versions as PPO
   adaptations, not official reproductions.
 
@@ -71,4 +75,3 @@ This repository's PPO path is a parametric approximation and should be reported
 with a stationarity interpretation unless stronger assumptions are verified.
 Finite `B2` contributes stochastic variance; finite `B1` generally biases the
 Gibbs target. Experiments must log both separately.
-

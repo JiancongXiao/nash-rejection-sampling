@@ -15,6 +15,10 @@ The first implemented method is Nash Rejection Sampling (Nash-RS):
 5. estimate the implicit reward of each PPO response from `B2` accepted
    opponents.
 
+The shared controller/runner also includes PPO adaptations of scalar-reward
+PPO, self-play, Nash-MD, MPO, EGPO, and COMAL. See `docs/METHODS.md` for their
+opponent rules, state transitions, and theory caveats.
+
 The implementation records preference-model calls, generated responses,
 generated tokens, proposals, acceptances, and wall-clock time.
 
