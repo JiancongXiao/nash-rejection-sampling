@@ -1,0 +1,49 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_vllm
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=00:30:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+module load singularity
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+SCRATCH_ROOT="/scratch/jiancongxiao"
+VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+OUTPUT="$SCRATCH_ROOT/results/vllm-smoke/${PBS_JOBID}.jsonl"
+
+if [[ ! -x "$VENV/bin/python" ]]; then
+  echo "OpenRLHF environment is missing: $VENV" >&2
+  exit 2
+fi
+
+mkdir -p \
+  "$SCRATCH_ROOT/cache/huggingface" \
+  "$SCRATCH_ROOT/cache/torch" \
+  "$SCRATCH_ROOT/cache/triton" \
+  "$SCRATCH_ROOT/tmp" \
+  "$(dirname "$OUTPUT")"
+
+echo "Job ID: ${PBS_JOBID:-unknown}"
+echo "Host: $(hostname)"
+echo "Output: $OUTPUT"
+
+# PBS owns GPU selection. Do not set CUDA_VISIBLE_DEVICES.
+singularity exec -e --nv "$IMAGE" env \
+  HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+  HUGGINGFACE_HUB_CACHE="$SCRATCH_ROOT/cache/huggingface/hub" \
+  TORCH_HOME="$SCRATCH_ROOT/cache/torch" \
+  TRITON_CACHE_DIR="$SCRATCH_ROOT/cache/triton" \
+  TMPDIR="$SCRATCH_ROOT/tmp" \
+  VLLM_WORKER_MULTIPROC_METHOD=spawn \
+  "$VENV/bin/python" examples/vllm_generation_smoke.py \
+    --model Qwen/Qwen2.5-0.5B-Instruct \
+    --output "$OUTPUT"
+
+echo "Nash-RS vLLM generation smoke test completed successfully."
