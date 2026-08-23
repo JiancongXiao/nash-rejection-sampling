@@ -22,7 +22,8 @@ mkdir -p \
   "$SCRATCH_ROOT/cache/huggingface" \
   "$SCRATCH_ROOT/cache/torch" \
   "$SCRATCH_ROOT/cache/triton" \
-  "$SCRATCH_ROOT/env_manifests"
+  "$SCRATCH_ROOT/env_manifests" \
+  "$SCRATCH_ROOT/tmp"
 
 echo "Job ID: ${PBS_JOBID:-unknown}"
 echo "Host: $(hostname)"
@@ -37,6 +38,9 @@ singularity exec -e --nv "$IMAGE" env \
   HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
   TORCH_HOME="$SCRATCH_ROOT/cache/torch" \
   TRITON_CACHE_DIR="$SCRATCH_ROOT/cache/triton" \
+  TMPDIR="$SCRATCH_ROOT/tmp" \
+  TMP="$SCRATCH_ROOT/tmp" \
+  TEMP="$SCRATCH_ROOT/tmp" \
   MAX_JOBS=8 \
   bash --noprofile --norc cluster/hopper/setup_openrlhf_env.sh
 
