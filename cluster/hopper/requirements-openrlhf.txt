@@ -1,0 +1,5 @@
+# Compatibility stack for the NUS Hopper driver (CUDA 12.9 maximum) and the
+# cluster's PyTorch 2.7 / CUDA 12.8 Apptainer image.
+openrlhf==0.9.3
+vllm==0.15.0
+flash-attn==2.8.3
