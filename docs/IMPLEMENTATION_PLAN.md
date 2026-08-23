@@ -35,9 +35,9 @@ adaptations should implement it without modifying the shared trainer.
 
 ## Stage 2: first GPU vertical slice
 
-1. Pin an OpenRLHF commit and environment lockfile.
-2. Implement a vLLM-backed current/reference `TextSampler`.
-3. Implement a batched local preference-model `PreferenceOracle`.
+1. Pin an OpenRLHF commit and environment lockfile. (completed)
+2. Implement a vLLM-backed current/reference `TextSampler`. (completed)
+3. Implement a batched local preference-model `PreferenceOracle`. (completed)
 4. Expose one configured `reward_func` through `--reward.remote_url`.
 5. Run 32 prompts on a small model; persist responses, opponents, rewards,
    acceptance diagnostics, and accounting as JSONL.
