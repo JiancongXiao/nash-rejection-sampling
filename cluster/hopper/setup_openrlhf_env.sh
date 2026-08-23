@@ -29,7 +29,7 @@ for constraint_var in PIP_CONSTRAINT PIP_BUILD_CONSTRAINT UV_CONSTRAINT; do
   fi
 done
 
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade pip "setuptools==80.9.0" wheel
 
 # Install vLLM first so its validated CUDA 12.8 PyTorch stack is present before
 # flash-attn is compiled. OpenRLHF is installed last to resolve the remaining
@@ -40,14 +40,15 @@ MAX_JOBS="${MAX_JOBS:-8}" python -m pip install \
 python -m pip install "openrlhf==0.9.3"
 
 # vLLM's dependency resolver may install the newest split CUTLASS DSL packages.
-# flash-attn 2.8.3 uses the older 4.2 API (including cute.core.ThrMma), so
-# remove the split family before installing the compatible monolithic wheel.
+# flash-attn 2.8.3 needs the older cute.core.ThrMma API, while FlashInfer 0.6.1
+# requires CUTLASS DSL >=4.3.4. Pin their common compatible boundary and remove
+# the newer split family before installing the monolithic 4.3.4 wheel.
 python -m pip uninstall -y \
   nvidia-cutlass-dsl \
   nvidia-cutlass-dsl-libs-base \
   nvidia-cutlass-dsl-libs-core \
   nvidia-cutlass-dsl-libs-cu12
-python -m pip install "nvidia-cutlass-dsl==4.2.0"
+python -m pip install "nvidia-cutlass-dsl==4.3.4"
 
 python -m pip install -e .
 python -m pip check
