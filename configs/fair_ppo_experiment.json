@@ -1,0 +1,33 @@
+{
+  "shared": {
+    "base_model": "meta-llama/Llama-3.1-8B-Instruct",
+    "reference_model": "meta-llama/Llama-3.1-8B-Instruct",
+    "prompt_dataset": "REPLACE_WITH_PINNED_DATASET_REVISION",
+    "preference_model": "REPLACE_WITH_PINNED_MODEL_REVISION",
+    "seed": 42,
+    "max_prompt_tokens": 1024,
+    "max_response_tokens": 1024,
+    "temperature": 0.8,
+    "top_p": 0.95,
+    "ppo": {
+      "actor_learning_rate": 5e-7,
+      "critic_learning_rate": 9e-6,
+      "clip_range": 0.2,
+      "kl_coefficient": 0.01,
+      "train_batch_size": 128,
+      "rollout_batch_size": 1024,
+      "ppo_epochs": 1
+    }
+  },
+  "methods": {
+    "nash_rs": {
+      "tau": 0.2,
+      "b1": 16,
+      "b2": 8,
+      "proposal_batch_size": 16
+    },
+    "nash_md_ppo": {},
+    "mpo_ppo": {},
+    "comal_ppo": {}
+  }
+}
