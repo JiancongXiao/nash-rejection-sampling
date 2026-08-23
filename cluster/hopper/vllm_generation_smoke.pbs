@@ -42,7 +42,6 @@ singularity exec -e --nv "$IMAGE" env \
   TRITON_CACHE_DIR="$SCRATCH_ROOT/cache/triton" \
   TMPDIR="$SCRATCH_ROOT/tmp" \
   VLLM_WORKER_MULTIPROC_METHOD=spawn \
-  VLLM_ATTENTION_BACKEND=FLASHINFER \
   "$VENV/bin/python" examples/vllm_generation_smoke.py \
     --model Qwen/Qwen2.5-0.5B-Instruct \
     --output "$OUTPUT"
