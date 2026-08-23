@@ -48,3 +48,16 @@ model caches, plus the final `pip freeze` manifest, are also kept under
 `/scratch/jiancongxiao`. The setup script is safe to rerun after a successful
 installation. If an interrupted first installation leaves an incomplete
 environment, move that specific environment directory aside before retrying.
+
+## Real-model vLLM smoke test
+
+After the environment setup succeeds, submit:
+
+```bash
+qsub cluster/hopper/vllm_generation_smoke.pbs
+```
+
+The job downloads the public `Qwen/Qwen2.5-0.5B-Instruct` model into the shared
+Hugging Face scratch cache, records its resolved model revision, and generates
+two short responses with vLLM on one H200. JSONL output is written under
+`/scratch/jiancongxiao/results/vllm-smoke/`.
