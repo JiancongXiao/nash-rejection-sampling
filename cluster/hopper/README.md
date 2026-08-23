@@ -65,3 +65,17 @@ The job downloads the public `Qwen/Qwen2.5-0.5B-Instruct` model into the shared
 Hugging Face scratch cache, records its resolved model revision, and generates
 two short responses with vLLM on one H200. JSONL output is written under
 `/scratch/jiancongxiao/results/vllm-smoke/`.
+
+## Nash-RS real-generation data path
+
+After the generic vLLM smoke test succeeds, submit:
+
+```bash
+qsub cluster/hopper/vllm_nash_rs_smoke.pbs
+```
+
+This job uses real vLLM generations for the current-policy samples, reference
+proposals, accepted Gibbs opponents, and rollout response. It then constructs
+the Nash-RS implicit reward with the corrected acceptance rule
+`u <= exp(-g_hat/tau)`. The smoke preference oracle is deterministic and will
+be replaced by the experiment preference model in the PPO integration.
