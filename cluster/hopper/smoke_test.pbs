@@ -10,6 +10,8 @@ set -euo pipefail
 
 cd "$PBS_O_WORKDIR"
 
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
 module load singularity
 
 IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.3.0_cuda_12.4_ngc_24.04.sif"
