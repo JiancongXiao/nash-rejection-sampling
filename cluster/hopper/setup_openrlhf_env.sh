@@ -39,6 +39,16 @@ MAX_JOBS="${MAX_JOBS:-8}" python -m pip install \
   "flash-attn==2.8.3" --no-build-isolation
 python -m pip install "openrlhf==0.9.3"
 
+# vLLM's dependency resolver may install the newest split CUTLASS DSL packages.
+# flash-attn 2.8.3 uses the older 4.2 API (including cute.core.ThrMma), so
+# remove the split family before installing the compatible monolithic wheel.
+python -m pip uninstall -y \
+  nvidia-cutlass-dsl \
+  nvidia-cutlass-dsl-libs-base \
+  nvidia-cutlass-dsl-libs-core \
+  nvidia-cutlass-dsl-libs-cu12
+python -m pip install "nvidia-cutlass-dsl==4.2.0"
+
 python -m pip install -e .
 python -m pip check
 
@@ -46,9 +56,21 @@ python - <<'PY'
 import importlib.metadata as metadata
 import torch
 
-packages = ("openrlhf", "vllm", "deepspeed", "ray", "transformers", "flash-attn")
+packages = (
+    "openrlhf",
+    "vllm",
+    "deepspeed",
+    "ray",
+    "transformers",
+    "flash-attn",
+    "nvidia-cutlass-dsl",
+)
 for package in packages:
     print(f"{package}: {metadata.version(package)}")
+import cutlass.cute.core as cute_core
+if not hasattr(cute_core, "ThrMma"):
+    raise SystemExit("CUTLASS DSL is missing cute.core.ThrMma")
+from flash_attn.cute.interface import _flash_attn_fwd  # noqa: F401
 print("torch:", torch.__version__)
 print("torch cuda:", torch.version.cuda)
 print("cuda available:", torch.cuda.is_available())
