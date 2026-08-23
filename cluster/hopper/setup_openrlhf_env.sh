@@ -15,6 +15,10 @@ fi
 
 source "$NASHRS_VENV/bin/activate"
 
+if [[ -n "${TMPDIR:-}" ]]; then
+  mkdir -p "$TMPDIR"
+fi
+
 # NVIDIA NGC images export a global pip constraint file for their preinstalled
 # stack. A clean virtual environment must not inherit those pins: for example,
 # the 25.03 image pins pydantic 2.10.6 while vLLM 0.15 requires >=2.12.
