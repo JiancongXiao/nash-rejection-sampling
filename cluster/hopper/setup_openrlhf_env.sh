@@ -15,6 +15,16 @@ fi
 
 source "$NASHRS_VENV/bin/activate"
 
+# NVIDIA NGC images export a global pip constraint file for their preinstalled
+# stack. A clean virtual environment must not inherit those pins: for example,
+# the 25.03 image pins pydantic 2.10.6 while vLLM 0.15 requires >=2.12.
+for constraint_var in PIP_CONSTRAINT PIP_BUILD_CONSTRAINT UV_CONSTRAINT; do
+  if [[ -n "${!constraint_var:-}" ]]; then
+    echo "Ignoring container-level $constraint_var=${!constraint_var}"
+    unset "$constraint_var"
+  fi
+done
+
 python -m pip install --upgrade pip setuptools wheel
 
 # Install vLLM first so its validated CUDA 12.8 PyTorch stack is present before
