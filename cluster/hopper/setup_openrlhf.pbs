@@ -1,0 +1,43 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_env
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=02:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+module load singularity
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+SCRATCH_ROOT="/scratch/jiancongxiao"
+VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+
+mkdir -p \
+  "$SCRATCH_ROOT/cache/pip" \
+  "$SCRATCH_ROOT/cache/huggingface" \
+  "$SCRATCH_ROOT/cache/torch" \
+  "$SCRATCH_ROOT/cache/triton" \
+  "$SCRATCH_ROOT/env_manifests"
+
+echo "Job ID: ${PBS_JOBID:-unknown}"
+echo "Host: $(hostname)"
+echo "Image: $IMAGE"
+echo "Environment: $VENV"
+
+# PBS owns GPU selection. Do not set CUDA_VISIBLE_DEVICES.
+singularity exec -e --nv "$IMAGE" env \
+  NASHRS_VENV="$VENV" \
+  NASHRS_ENV_MANIFEST_DIR="$SCRATCH_ROOT/env_manifests" \
+  PIP_CACHE_DIR="$SCRATCH_ROOT/cache/pip" \
+  HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+  TORCH_HOME="$SCRATCH_ROOT/cache/torch" \
+  TRITON_CACHE_DIR="$SCRATCH_ROOT/cache/triton" \
+  MAX_JOBS=8 \
+  bash --noprofile --norc cluster/hopper/setup_openrlhf_env.sh
+
+echo "Nash-RS OpenRLHF setup completed successfully."
