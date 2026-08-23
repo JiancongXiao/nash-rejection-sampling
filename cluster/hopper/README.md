@@ -35,8 +35,9 @@ toy Nash-RS example. PBS configures the assigned GPU automatically; do not set
 The reproducible training environment is pinned to OpenRLHF 0.9.3 and vLLM
 0.15.0. This combination uses the CUDA 12.8 wheel stack compatible with the
 Hopper driver and the cluster's `pytorch_2.7.0_cuda_12.8.sif` image. CUTLASS
-DSL is pinned to 4.2.0 because flash-attn 2.8.3 imports its `ThrMma` API;
-newer CUTLASS DSL releases removed that symbol.
+DSL is pinned to 4.3.4: this is the minimum accepted by FlashInfer 0.6.1 and
+retains the `ThrMma` API imported by flash-attn 2.8.3. Setuptools is pinned to
+80.9.0 to satisfy vLLM's Python 3.12 requirement of `>=77,<81`.
 
 Submit the setup job once from the repository root:
 
