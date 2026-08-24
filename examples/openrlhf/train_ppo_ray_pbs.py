@@ -5,15 +5,61 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import runpy
+import subprocess
 
-import ray
-import torch
+
+def normalize_pbs_gpu_uuid() -> tuple[str, str]:
+    """Translate PBS GPU UUIDs to the same devices' physical indices for vLLM.
+
+    CUDA accepts UUIDs natively, but vLLM 0.15 converts every entry in
+    CUDA_VISIBLE_DEVICES with int(). The mapping preserves PBS's device choice;
+    it does not select an additional or different GPU.
+    """
+
+    original = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    entries = [entry.strip() for entry in original.split(",") if entry.strip()]
+    if not entries or all(entry.isdigit() for entry in entries):
+        return original or "<unset>", original or "<unset>"
+
+    output = subprocess.check_output(
+        [
+            "nvidia-smi",
+            "--query-gpu=index,uuid",
+            "--format=csv,noheader,nounits",
+        ],
+        text=True,
+    )
+    inventory = {}
+    for line in output.splitlines():
+        index, uuid = (part.strip() for part in line.split(",", maxsplit=1))
+        inventory[uuid] = index
+
+    normalized = []
+    for entry in entries:
+        if entry.isdigit():
+            normalized.append(entry)
+            continue
+        matches = [index for uuid, index in inventory.items() if uuid.startswith(entry)]
+        if len(matches) != 1:
+            raise SystemExit(
+                f"Could not uniquely map PBS GPU identifier {entry!r}: {inventory}"
+            )
+        normalized.append(matches[0])
+    mapped = ",".join(normalized)
+    os.environ["CUDA_VISIBLE_DEVICES"] = mapped
+    return original, mapped
 
 
 def main() -> None:
-    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "<unset>")
+    original_devices, visible_devices = normalize_pbs_gpu_uuid()
+    # Import after normalization so Ray, PyTorch, vLLM, and engine subprocesses
+    # all inherit the numeric form required by vLLM 0.15.
+    import ray
+    import torch
+
+    print(f"PBS GPU assignment: {original_devices}", flush=True)
+    print(f"vLLM-compatible CUDA_VISIBLE_DEVICES: {visible_devices}", flush=True)
     gpu_count = torch.cuda.device_count()
-    print(f"PBS CUDA_VISIBLE_DEVICES: {visible_devices}", flush=True)
     print(f"PyTorch visible GPUs: {gpu_count}", flush=True)
     if gpu_count < 1:
         raise SystemExit("No PBS GPU is visible inside the container")
