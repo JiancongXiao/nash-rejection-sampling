@@ -49,22 +49,35 @@ def main() -> None:
     common = sorted(set(base).intersection(trained))
     if not common:
         raise SystemExit("No common safetensors keys found")
-    key = preferred if preferred in common else common[0]
-    before = load_tensor(base[key], key)
-    after = load_tensor(trained[key], key)
-    difference = after - before
+    ordered = ([preferred] if preferred in common else []) + [
+        key for key in common if key != preferred
+    ]
+    changed = None
+    for checked, key in enumerate(ordered, start=1):
+        before = load_tensor(base[key], key)
+        after = load_tensor(trained[key], key)
+        difference = after - before
+        changed_elements = int(torch.count_nonzero(difference))
+        if changed_elements:
+            changed = {
+                "tensor": key,
+                "l2_update_norm": float(torch.linalg.vector_norm(difference)),
+                "max_abs_update": float(difference.abs().max()),
+                "changed_elements": changed_elements,
+                "num_elements": difference.numel(),
+                "tensors_checked": checked,
+            }
+            break
+    if changed is None:
+        raise SystemExit(
+            f"PPO smoke checkpoint is identical across all {len(common)} common tensors"
+        )
     result = {
         "base_model": args.base_model,
         "base_revision": revision,
         "checkpoint": str(args.checkpoint),
-        "tensor": key,
-        "l2_update_norm": float(torch.linalg.vector_norm(difference)),
-        "max_abs_update": float(difference.abs().max()),
-        "changed_elements": int(torch.count_nonzero(difference)),
-        "num_elements": difference.numel(),
+        **changed,
     }
-    if result["changed_elements"] == 0:
-        raise SystemExit("PPO smoke checkpoint is identical to the base tensor")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
