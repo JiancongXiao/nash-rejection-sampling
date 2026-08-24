@@ -142,3 +142,16 @@ uses the rollout batch size to write `step_total_*` and
 `cumulative_total_*` count fields. `sum_sample_gpu_hours` measures summed
 sample work; it is distinct from PBS allocated wall-clock GPU-hours when
 sample executions overlap.
+
+## 128-prompt pilot
+
+The next scaling check uses 128 unique prompts and a 128-token response budget:
+
+```bash
+qsub cluster/hopper/openrlhf_nash_rs_pilot_128.pbs
+```
+
+With rollout and train batch sizes of 8, this produces 16 global optimizer
+steps. It keeps the actor learning rate at `1e-6`, critic learning rate at
+`1e-5`, and `B1=B2=2`. Results are written under
+`/scratch/jiancongxiao/results/openrlhf-nashrs-pilot-128/JOB_ID/`.
