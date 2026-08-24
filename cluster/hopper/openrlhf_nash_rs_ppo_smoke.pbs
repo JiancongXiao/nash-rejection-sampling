@@ -31,6 +31,8 @@ MICRO_TRAIN_BATCH_SIZE="${NASHRS_MICRO_TRAIN_BATCH_SIZE:-1}"
 ROLLOUT_BATCH_SIZE="${NASHRS_ROLLOUT_BATCH_SIZE:-2}"
 MICRO_ROLLOUT_BATCH_SIZE="${NASHRS_MICRO_ROLLOUT_BATCH_SIZE:-1}"
 VLLM_GENERATE_BATCH_SIZE="${NASHRS_VLLM_GENERATE_BATCH_SIZE:-2}"
+PROMPT_MAX_LEN="${NASHRS_PROMPT_MAX_LEN:-128}"
+GENERATE_MAX_LEN="${NASHRS_GENERATE_MAX_LEN:-48}"
 ACTOR_LR="${NASHRS_ACTOR_LR:-1e-3}"
 CRITIC_LR="${NASHRS_CRITIC_LR:-1e-5}"
 LR_WARMUP_RATIO="${NASHRS_LR_WARMUP_RATIO:-0.0}"
@@ -176,8 +178,8 @@ singularity exec --nv "$IMAGE" env \
     --num_episodes 1 \
     --max_epochs 1 \
     --max_samples "$MAX_SAMPLES" \
-    --prompt_max_len 128 \
-    --generate_max_len 48 \
+    --prompt_max_len "$PROMPT_MAX_LEN" \
+    --generate_max_len "$GENERATE_MAX_LEN" \
     --zero_stage 2 \
     --param_dtype bf16 \
     --actor_learning_rate "$ACTOR_LR" \
