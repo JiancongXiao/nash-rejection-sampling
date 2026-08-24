@@ -36,7 +36,22 @@ class NashRSTest(unittest.TestCase):
         self.assertEqual(batch.accounting.policy_generations, 3)
         self.assertEqual(batch.accounting.reference_generations, 2)
         self.assertEqual(batch.accounting.accepted, 2)
+        self.assertEqual(batch.accounting.acceptance_trials, 2)
+        self.assertEqual(batch.accounting.acceptance_rate, 1.0)
         self.assertEqual(batch.accounting.preference_model_calls, 3 * 2 + 2 * 2)
+
+    def test_acceptance_rate_is_not_capped_by_proposal_batching(self) -> None:
+        constructor = NashRSRewardConstructor(
+            NashRSConfig(tau=1.0, b1=1, b2=2, seed=3, proposal_batch_size=4),
+            FixedSampler("policy"),
+            FixedSampler("reference"),
+            ConstantOracle(0.0),
+        )
+        batch = constructor.construct(["p"], ["r"])
+        self.assertEqual(batch.accounting.proposals, 4)
+        self.assertEqual(batch.accounting.acceptance_trials, 2)
+        self.assertEqual(batch.accounting.acceptance_rate, 1.0)
+        self.assertEqual(batch.accounting.proposal_efficiency, 0.5)
 
     def test_reward_is_scaled_by_inverse_tau(self) -> None:
         constructor = NashRSRewardConstructor(
@@ -51,4 +66,3 @@ class NashRSTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
