@@ -29,6 +29,9 @@ RAY_LOG_ARCHIVE="$RUN_ROOT/ray-logs"
 SAVE_PATH="$RUN_ROOT/actor"
 CKPT_PATH="$RUN_ROOT/deepspeed"
 VERIFY_OUTPUT="$RUN_ROOT/parameter_update.json"
+# Deliberately high for a one-step BF16 parameter-change sentinel only.
+# Production experiment configs must use their separately tuned learning rate.
+SMOKE_ACTOR_LR="1e-3"
 
 if [[ ! -x "$VENV/bin/python" ]]; then
   echo "OpenRLHF environment is missing: $VENV" >&2
@@ -164,7 +167,7 @@ singularity exec --nv "$IMAGE" env \
     --generate_max_len 48 \
     --zero_stage 2 \
     --param_dtype bf16 \
-    --actor_learning_rate 1e-4 \
+    --actor_learning_rate "$SMOKE_ACTOR_LR" \
     --critic_learning_rate 1e-5 \
     --init_kl_coef 0.01 \
     --prompt_data "$PBS_O_WORKDIR/examples/data/ppo_smoke_prompts.jsonl" \
