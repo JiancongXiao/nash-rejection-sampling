@@ -21,6 +21,7 @@ PM_MODEL="OpenAssistant/reward-model-deberta-v3-large-v2"
 PM_REVISION="c355404efa9ad2ad069f3a197cae0523c14244fc"
 HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
 MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
+CUDA_DRIVER_LIB="$SCRATCH_ROOT/cuda-driver-lib"
 RUN_ROOT="$SCRATCH_ROOT/results/openrlhf-nashrs-ppo/${PBS_JOBID}"
 JOB_NUMBER="${PBS_JOBID%%.*}"
 RAY_ROOT="/tmp/nashrs-ray-$JOB_NUMBER"
@@ -52,8 +53,14 @@ mkdir -p \
   "$SCRATCH_ROOT/cache/huggingface" \
   "$SCRATCH_ROOT/cache/torch" \
   "$SCRATCH_ROOT/cache/triton" \
+  "$CUDA_DRIVER_LIB" \
   "$SCRATCH_ROOT/tmp" \
   "$RUN_ROOT"
+
+# Triton searches for an unversioned libcuda.so. The Hopper container exposes
+# the driver as libcuda.so.1 under CUDA's compatibility directory.
+ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so"
+ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so.1"
 
 archive_ray_logs() {
   local session
@@ -76,6 +83,7 @@ echo "PBS CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<unset>}"
 
 # PBS owns GPU selection. Do not set CUDA_VISIBLE_DEVICES.
 singularity exec --nv "$IMAGE" env \
+  LD_LIBRARY_PATH="$CUDA_DRIVER_LIB:/usr/local/cuda/compat/lib:${LD_LIBRARY_PATH:-}" \
   HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
   HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
   HF_HUB_DISABLE_XET=1 \
