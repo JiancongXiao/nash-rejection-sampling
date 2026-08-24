@@ -27,6 +27,7 @@ def parse_args() -> argparse.Namespace:
         "--preference-model",
         default="OpenAssistant/reward-model-deberta-v3-large-v2",
     )
+    parser.add_argument("--preference-revision")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-model-len", type=int, default=1024)
     parser.add_argument("--max-new-tokens", type=int, default=48)
@@ -41,7 +42,9 @@ def main() -> None:
     args = parse_args()
     prompt = "Explain briefly why reproducible machine-learning experiments matter."
     policy_info = model_info(args.model)
-    preference_info = model_info(args.preference_model)
+    preference_revision = args.preference_revision or model_info(
+        args.preference_model
+    ).sha
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=policy_info.sha)
     llm = LLM(
         model=args.model,
@@ -54,7 +57,7 @@ def main() -> None:
     )
     scalar_reward = TransformersScalarRewardOracle(
         args.preference_model,
-        revision=preference_info.sha,
+        revision=preference_revision,
         device="cuda",
         batch_size=8,
         max_length=512,
@@ -82,7 +85,7 @@ def main() -> None:
         "policy_model": args.model,
         "policy_revision": policy_info.sha,
         "preference_model": args.preference_model,
-        "preference_revision": preference_info.sha,
+        "preference_revision": preference_revision,
         "preference_type": "single-component BTL smoke",
         "prompt": prompt,
         "rollout_response": rollout_response,
