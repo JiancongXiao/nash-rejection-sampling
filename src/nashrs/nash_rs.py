@@ -111,6 +111,7 @@ class NashRSRewardConstructor:
                 accounting.preference_model_calls += len(probabilities)
 
                 for index, proposal in enumerate(proposals):
+                    accounting.acceptance_trials += 1
                     start = index * self.config.b1
                     g_hat = sum(probabilities[start : start + self.config.b1]) / self.config.b1
                     if accept_gibbs_proposal(g_hat, self.config.tau, self.rng):
