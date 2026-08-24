@@ -13,8 +13,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--log", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--samples-per-step", type=int, default=1)
     args = parser.parse_args()
-    records = export_step_metrics(args.log, args.output)
+    records = export_step_metrics(
+        args.log, args.output, samples_per_step=args.samples_per_step
+    )
     print(
         json.dumps(
             {
