@@ -36,8 +36,13 @@ def load_tensor(path: Path, key: str) -> torch.Tensor:
 
 def main() -> None:
     args = parse_args()
-    revision = args.base_revision or model_info(args.base_model).sha
-    base_root = Path(snapshot_download(args.base_model, revision=revision))
+    local_base = Path(args.base_model)
+    if local_base.exists():
+        base_root = local_base
+        revision = args.base_revision or local_base.name
+    else:
+        revision = args.base_revision or model_info(args.base_model).sha
+        base_root = Path(snapshot_download(args.base_model, revision=revision))
     base = tensor_locations(base_root)
     trained = tensor_locations(args.checkpoint)
     preferred = "model.layers.0.self_attn.q_proj.weight"
