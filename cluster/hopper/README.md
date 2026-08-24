@@ -110,3 +110,30 @@ current vLLM policy, samples proposals from a separately loaded fixed reference
 checkpoint, scores them with the real preference model, and applies the
 correct Gibbs rejection event. The final actor is saved under scratch and a
 post-run tensor comparison records a nonzero parameter update.
+
+The cluster exports GPU UUIDs while vLLM 0.15 expects numeric device IDs. The
+shared launcher resolves the PBS-assigned UUID to the same physical GPU before
+entering the container; it never chooses an unallocated device.
+
+## 32-prompt multi-step pilot
+
+After the one-step PPO smoke test succeeds, submit:
+
+```bash
+qsub cluster/hopper/openrlhf_nash_rs_pilot.pbs
+```
+
+The pilot uses Qwen2.5-0.5B on 32 prompts, with rollout and train batch sizes of
+8, yielding four OpenRLHF global steps. The actor learning rate is `1e-6` and
+the critic learning rate is `1e-5`; warmup is disabled because the run is only
+four steps. It reuses the validated `B1=B2=2` Gibbs sampling configuration.
+
+Outputs are written to:
+
+```text
+/scratch/jiancongxiao/results/openrlhf-nashrs-pilot/JOB_ID/
+```
+
+The final actor is stored in `actor/`. Per-step metrics are stored as JSONL in
+`step_metrics.jsonl`, including reward, acceptance rate, preference-model
+calls, KL, GPU-hours, generated tokens, and cumulative cost fields.
