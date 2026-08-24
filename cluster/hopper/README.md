@@ -143,6 +143,12 @@ uses the rollout batch size to write `step_total_*` and
 sample work; it is distinct from PBS allocated wall-clock GPU-hours when
 sample executions overlap.
 
+Rejection accounting distinguishes two rates. `acceptance_rate` is accepted
+samples divided by proposals that actually received a rejection decision;
+`proposal_efficiency` is accepted samples divided by all reference responses
+generated in fixed-size proposal batches. The latter may be lower because the
+last batch can contain unused proposals after `B2` opponents have been found.
+
 ## 128-prompt pilot
 
 The next scaling check uses 128 unique prompts and a 128-token response budget:
