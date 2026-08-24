@@ -38,6 +38,11 @@ CRITIC_LR="${NASHRS_CRITIC_LR:-1e-5}"
 LR_WARMUP_RATIO="${NASHRS_LR_WARMUP_RATIO:-0.0}"
 LR_SCHEDULER="${NASHRS_LR_SCHEDULER:-constant}"
 VERIFY_PARAMETER_UPDATE="${NASHRS_VERIFY_PARAMETER_UPDATE:-1}"
+NUM_EPISODES="${NASHRS_NUM_EPISODES:-1}"
+SAVE_STEPS="${NASHRS_SAVE_STEPS:--1}"
+MAX_CKPT_NUM="${NASHRS_MAX_CKPT_NUM:-4}"
+RUN_FIXED_EVAL="${NASHRS_RUN_FIXED_EVAL:-0}"
+EVAL_PROMPT_DATA="${NASHRS_EVAL_PROMPT_DATA:-$PBS_O_WORKDIR/examples/data/ppo_eval_prompts_16.jsonl}"
 RUN_ROOT="$SCRATCH_ROOT/results/$RESULTS_NAMESPACE/${PBS_JOBID}"
 JOB_NUMBER="${PBS_JOBID%%.*}"
 RAY_ROOT="/tmp/nashrs-ray-$JOB_NUMBER"
@@ -175,7 +180,7 @@ singularity exec --nv "$IMAGE" env \
     --rollout_batch_size "$ROLLOUT_BATCH_SIZE" \
     --vllm_generate_batch_size "$VLLM_GENERATE_BATCH_SIZE" \
     --n_samples_per_prompt 1 \
-    --num_episodes 1 \
+    --num_episodes "$NUM_EPISODES" \
     --max_epochs 1 \
     --max_samples "$MAX_SAMPLES" \
     --prompt_max_len "$PROMPT_MAX_LEN" \
@@ -192,7 +197,9 @@ singularity exec --nv "$IMAGE" env \
     --apply_chat_template \
     --attn_implementation sdpa \
     --enforce_eager \
-    --logging_steps 1
+    --logging_steps 1 \
+    --save_steps "$SAVE_STEPS" \
+    --max_ckpt_num "$MAX_CKPT_NUM"
 
 singularity exec -e "$IMAGE" env \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
@@ -212,6 +219,27 @@ if [[ "$VERIFY_PARAMETER_UPDATE" == "1" ]]; then
       --base-model "$MODEL" \
       --checkpoint "$SAVE_PATH" \
       --output "$VERIFY_OUTPUT"
+fi
+
+if [[ "$RUN_FIXED_EVAL" == "1" ]]; then
+  singularity exec --nv "$IMAGE" env \
+    CUDA_VISIBLE_DEVICES="$VLLM_GPU_INDEX" \
+    TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
+    HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+    HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_DISABLE_XET=1 \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    PYTHONPATH="$PBS_O_WORKDIR/src" \
+    "$VENV/bin/python" examples/evaluate_ppo_checkpoints.py \
+      --prompts "$EVAL_PROMPT_DATA" \
+      --base-model "$MODEL" \
+      --checkpoint-root "$CKPT_PATH" \
+      --final-model "$SAVE_PATH" \
+      --preference-model "$PM_MODEL" \
+      --preference-revision "$PM_REVISION" \
+      --max-new-tokens "$GENERATE_MAX_LEN" \
+      --output-dir "$RUN_ROOT/fixed_eval"
 fi
 
 echo "Nash-RS OpenRLHF $RUN_LABEL completed successfully."
