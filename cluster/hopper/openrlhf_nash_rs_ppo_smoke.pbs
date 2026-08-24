@@ -81,8 +81,35 @@ echo "Run root: $RUN_ROOT"
 echo "Ray root: $RAY_ROOT"
 echo "PBS CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<unset>}"
 
-# PBS owns GPU selection. Do not set CUDA_VISIBLE_DEVICES.
+PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
+if [[ "$PBS_GPU_ASSIGNMENT" == *,* ]]; then
+  echo "This one-GPU smoke test received multiple PBS GPU identifiers: $PBS_GPU_ASSIGNMENT" >&2
+  exit 4
+elif [[ "$PBS_GPU_ASSIGNMENT" == GPU-* ]]; then
+  VLLM_GPU_INDEX="$(
+    nvidia-smi \
+      --id="$PBS_GPU_ASSIGNMENT" \
+      --query-gpu=index \
+      --format=csv,noheader,nounits \
+      | head -1 | tr -d '[:space:]'
+  )"
+elif [[ "$PBS_GPU_ASSIGNMENT" =~ ^[0-9]+$ ]]; then
+  VLLM_GPU_INDEX="$PBS_GPU_ASSIGNMENT"
+else
+  echo "Unsupported or missing PBS GPU assignment: $PBS_GPU_ASSIGNMENT" >&2
+  exit 5
+fi
+if [[ ! "$VLLM_GPU_INDEX" =~ ^[0-9]+$ ]]; then
+  echo "Failed to map PBS GPU assignment to an index: $PBS_GPU_ASSIGNMENT" >&2
+  exit 6
+fi
+echo "PBS GPU index for vLLM: $VLLM_GPU_INDEX"
+
+# Preserve PBS's exact device choice while converting its UUID to the numeric
+# form required by vLLM 0.15 inside the container.
 singularity exec --nv "$IMAGE" env \
+  CUDA_VISIBLE_DEVICES="$VLLM_GPU_INDEX" \
+  NASHRS_PBS_GPU_ASSIGNMENT="$PBS_GPU_ASSIGNMENT" \
   LD_LIBRARY_PATH="$CUDA_DRIVER_LIB:/usr/local/cuda/compat/lib:${LD_LIBRARY_PATH:-}" \
   HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
   HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
