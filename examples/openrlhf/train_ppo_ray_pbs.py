@@ -21,18 +21,12 @@ def normalize_pbs_gpu_uuid() -> tuple[str, str]:
     if not entries or all(entry.isdigit() for entry in entries):
         return original or "<unset>", original or "<unset>"
 
-    query_env = os.environ.copy()
-    # The Triton compatibility path contains CUDA driver shims. nvidia-smi
-    # must use the host-mounted NVML/driver libraries while resolving PBS's
-    # UUID, before that compatibility path is needed by training workers.
-    query_env.pop("LD_LIBRARY_PATH", None)
     output = subprocess.check_output(
         [
             "nvidia-smi",
             "--query-gpu=index,uuid",
             "--format=csv,noheader,nounits",
         ],
-        env=query_env,
         text=True,
     )
     inventory = {}
