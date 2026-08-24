@@ -164,7 +164,7 @@ singularity exec --nv "$IMAGE" env \
     --generate_max_len 48 \
     --zero_stage 2 \
     --param_dtype bf16 \
-    --actor_learning_rate 1e-6 \
+    --actor_learning_rate 1e-4 \
     --critic_learning_rate 1e-5 \
     --init_kl_coef 0.01 \
     --prompt_data "$PBS_O_WORKDIR/examples/data/ppo_smoke_prompts.jsonl" \
