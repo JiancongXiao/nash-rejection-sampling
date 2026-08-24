@@ -136,4 +136,9 @@ Outputs are written to:
 
 The final actor is stored in `actor/`. Per-step metrics are stored as JSONL in
 `step_metrics.jsonl`, including reward, acceptance rate, preference-model
-calls, KL, GPU-hours, generated tokens, and cumulative cost fields.
+calls, KL, GPU-hours, generated tokens, and cumulative cost fields. OpenRLHF
+reports executor accounting as per-prompt batch means, so the exporter also
+uses the rollout batch size to write `step_total_*` and
+`cumulative_total_*` count fields. `sum_sample_gpu_hours` measures summed
+sample work; it is distinct from PBS allocated wall-clock GPU-hours when
+sample executions overlap.
