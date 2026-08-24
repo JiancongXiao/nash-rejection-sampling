@@ -14,17 +14,25 @@ class Accounting:
     opponent_generations: int = 0
     generated_tokens: int = 0
     proposals: int = 0
+    acceptance_trials: int = 0
     accepted: int = 0
     wall_time_seconds: float = 0.0
     gpu_hours: float = 0.0
 
     @property
     def acceptance_rate(self) -> float:
+        return self.accepted / self.acceptance_trials if self.acceptance_trials else 0.0
+
+    @property
+    def proposal_efficiency(self) -> float:
+        """Accepted opponents per generated reference proposal."""
+
         return self.accepted / self.proposals if self.proposals else 0.0
 
     def to_logs(self, prefix: str = "nashrs") -> dict[str, float]:
         values = asdict(self)
         values["acceptance_rate"] = self.acceptance_rate
+        values["proposal_efficiency"] = self.proposal_efficiency
         return {f"{prefix}/{key}": float(value) for key, value in values.items()}
 
 
