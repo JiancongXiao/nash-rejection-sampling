@@ -9,7 +9,9 @@ class MetricsExportTest(unittest.TestCase):
             "noise",
             "(PPOTrainer pid=1) INFO x] ✨ Global step 1: "
             "{'reward': 0.4, 'kl': 0.01, 'nashrs/acceptance_rate': 0.5, "
-            "'nashrs/preference_model_calls': 8.0, 'nashrs/gpu_hours': 0.1}",
+            "'nashrs/preference_model_calls': 8.0, 'nashrs/accepted': 2.0, "
+            "'nashrs/acceptance_trials': 3.0, 'nashrs/proposals': 4.0, "
+            "'nashrs/gpu_hours': 0.1}",
             "(PPOTrainer pid=1) INFO x] ✨ Global step 2: "
             "{'reward': 0.6, 'kl': 0.02, 'nashrs/acceptance_rate': 0.75, "
             "'nashrs/preference_model_calls': 6.0, 'nashrs/gpu_hours': 0.2}",
@@ -25,6 +27,8 @@ class MetricsExportTest(unittest.TestCase):
         )
         self.assertEqual(records[1]["reward"], 0.6)
         self.assertEqual(records[1]["nashrs/acceptance_rate"], 0.75)
+        self.assertAlmostEqual(records[0]["nashrs/aggregate_acceptance_rate"], 2 / 3)
+        self.assertEqual(records[0]["nashrs/aggregate_proposal_efficiency"], 0.5)
 
     def test_rejects_nonpositive_step_size(self):
         with self.assertRaises(ValueError):
