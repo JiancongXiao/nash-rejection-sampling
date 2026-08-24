@@ -14,12 +14,21 @@ class MetricsExportTest(unittest.TestCase):
             "{'reward': 0.6, 'kl': 0.02, 'nashrs/acceptance_rate': 0.75, "
             "'nashrs/preference_model_calls': 6.0, 'nashrs/gpu_hours': 0.2}",
         ]
-        records = parse_step_lines(lines)
+        records = parse_step_lines(lines, samples_per_step=8)
         self.assertEqual([record["step"] for record in records], [1, 2])
-        self.assertEqual(records[1]["nashrs/cumulative_preference_model_calls"], 14.0)
-        self.assertAlmostEqual(records[1]["nashrs/cumulative_gpu_hours"], 0.3)
+        self.assertEqual(records[0]["nashrs/step_total_preference_model_calls"], 64.0)
+        self.assertEqual(
+            records[1]["nashrs/cumulative_total_preference_model_calls"], 112.0
+        )
+        self.assertAlmostEqual(
+            records[1]["nashrs/cumulative_sum_sample_gpu_hours"], 2.4
+        )
         self.assertEqual(records[1]["reward"], 0.6)
         self.assertEqual(records[1]["nashrs/acceptance_rate"], 0.75)
+
+    def test_rejects_nonpositive_step_size(self):
+        with self.assertRaises(ValueError):
+            parse_step_lines([], samples_per_step=0)
 
 
 if __name__ == "__main__":
