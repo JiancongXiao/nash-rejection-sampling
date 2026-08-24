@@ -139,6 +139,7 @@ class AgentExecutor(AgentExecutorBase):
 
         accepted = []
         proposals = 0
+        acceptance_trials = 0
         reference_tokens = 0
         preference_calls = 0
         while len(accepted) < self.b2:
@@ -151,6 +152,7 @@ class AgentExecutor(AgentExecutorBase):
             reference_tokens += token_count
             proposals += count
             for candidate in candidates:
+                acceptance_trials += 1
                 probabilities = self._preference.compare(
                     [prompt] * self.b1,
                     current,
@@ -200,8 +202,10 @@ class AgentExecutor(AgentExecutorBase):
                 "nashrs/reference_generations": float(proposals),
                 "nashrs/generated_tokens": float(current_tokens + reference_tokens),
                 "nashrs/proposals": float(proposals),
+                "nashrs/acceptance_trials": float(acceptance_trials),
                 "nashrs/accepted": float(self.b2),
-                "nashrs/acceptance_rate": float(self.b2 / proposals),
+                "nashrs/acceptance_rate": float(self.b2 / acceptance_trials),
+                "nashrs/proposal_efficiency": float(self.b2 / proposals),
                 "nashrs/mean_accepted_g_hat": float(
                     sum(g_hat for _, g_hat in accepted) / self.b2
                 ),
