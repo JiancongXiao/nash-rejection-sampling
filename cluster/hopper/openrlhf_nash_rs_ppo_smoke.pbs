@@ -196,7 +196,8 @@ singularity exec -e "$IMAGE" env \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
   "$VENV/bin/python" examples/export_openrlhf_metrics.py \
     --log "$PBS_O_WORKDIR/stdout.${PBS_JOBID}" \
-    --output "$METRICS_OUTPUT"
+    --output "$METRICS_OUTPUT" \
+    --samples-per-step "$ROLLOUT_BATCH_SIZE"
 
 if [[ "$VERIFY_PARAMETER_UPDATE" == "1" ]]; then
   singularity exec -e "$IMAGE" env \
