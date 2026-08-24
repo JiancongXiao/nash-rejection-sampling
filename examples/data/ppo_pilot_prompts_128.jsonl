@@ -1,0 +1,128 @@
+{"prompt":"Explain why reproducibility is important in machine learning research."}
+{"prompt":"Describe a Nash equilibrium using a simple everyday analogy."}
+{"prompt":"Give three practical ways to reduce overfitting in a neural network."}
+{"prompt":"Explain the difference between precision and recall."}
+{"prompt":"Summarize why data quality matters more than dataset size in some settings."}
+{"prompt":"Describe one benefit and one limitation of reinforcement learning from human feedback."}
+{"prompt":"Explain gradient descent to a first-year university student."}
+{"prompt":"Give a concise checklist for evaluating a machine-learning experiment."}
+{"prompt":"Explain what calibration means for a probabilistic classifier."}
+{"prompt":"Compare supervised learning and reinforcement learning in four sentences."}
+{"prompt":"Describe how a cyclic preference can violate a scalar reward model."}
+{"prompt":"Explain why train-test leakage leads to misleading results."}
+{"prompt":"Give a short example of Simpson's paradox."}
+{"prompt":"Explain the exploration-exploitation tradeoff with an example."}
+{"prompt":"List three reasons a language-model benchmark may become unreliable."}
+{"prompt":"Describe what KL divergence measures without using advanced mathematics."}
+{"prompt":"Explain why last-iterate convergence can matter in game optimization."}
+{"prompt":"Give a concise argument for reporting uncertainty alongside an average score."}
+{"prompt":"Describe the purpose of a validation set."}
+{"prompt":"Explain why a larger model is not always a better experimental baseline."}
+{"prompt":"Give three suggestions for making a scientific figure easier to interpret."}
+{"prompt":"Explain the difference between correlation and causation with an example."}
+{"prompt":"Describe a fair protocol for comparing two optimization algorithms."}
+{"prompt":"Explain why random seeds should be reported in empirical research."}
+{"prompt":"Give a brief introduction to pairwise preference learning."}
+{"prompt":"Describe one way to detect distribution shift after deployment."}
+{"prompt":"Explain why reward hacking is a concern in model alignment."}
+{"prompt":"Give a short example of an intransitive preference cycle."}
+{"prompt":"Explain the role of a reference policy in KL-regularized optimization."}
+{"prompt":"Describe why wall-clock time and sample count are both useful efficiency metrics."}
+{"prompt":"Give a concise explanation of rejection sampling."}
+{"prompt":"Explain why an ablation study strengthens an empirical claim."}
+{"prompt":"Compare accuracy and F1 score and state when each is useful."}
+{"prompt":"Explain the bias-variance tradeoff with a concrete example."}
+{"prompt":"Describe how cross-validation helps estimate generalization performance."}
+{"prompt":"Give three warning signs that a model evaluation is underpowered."}
+{"prompt":"Explain why class imbalance can make accuracy misleading."}
+{"prompt":"Describe early stopping and explain why it can improve generalization."}
+{"prompt":"Compare batch gradient descent and stochastic gradient descent."}
+{"prompt":"Explain what a confidence interval communicates."}
+{"prompt":"Describe the difference between aleatoric and epistemic uncertainty."}
+{"prompt":"Give a practical example of covariate shift."}
+{"prompt":"Explain why hyperparameters should not be selected on the test set."}
+{"prompt":"Describe one advantage and one drawback of parameter-efficient fine-tuning."}
+{"prompt":"Explain how a confusion matrix helps diagnose a classifier."}
+{"prompt":"Give a concise definition of statistical power."}
+{"prompt":"Explain why multiple-comparison correction may be necessary."}
+{"prompt":"Describe a robust way to aggregate results across random seeds."}
+{"prompt":"Explain why causal conclusions require more than predictive accuracy."}
+{"prompt":"Give three common causes of distribution shift in production."}
+{"prompt":"Describe how bootstrap resampling can quantify uncertainty."}
+{"prompt":"Explain what it means for an optimization problem to be convex."}
+{"prompt":"Compare first-order and second-order optimization methods."}
+{"prompt":"Describe why normalization can make neural-network training easier."}
+{"prompt":"Explain vanishing gradients in plain language."}
+{"prompt":"Give a concise explanation of gradient clipping."}
+{"prompt":"Describe the purpose of a learning-rate schedule."}
+{"prompt":"Explain why optimizer state matters when resuming training."}
+{"prompt":"Compare full fine-tuning with LoRA."}
+{"prompt":"Describe one reason mixed-precision training can become unstable."}
+{"prompt":"Explain why checkpoint selection must follow a fixed protocol."}
+{"prompt":"Give a short checklist for debugging a training loss that becomes NaN."}
+{"prompt":"Explain how entropy regularization affects a policy."}
+{"prompt":"Describe the difference between on-policy and off-policy learning."}
+{"prompt":"Explain why a reward model may fail outside its training distribution."}
+{"prompt":"Give three examples of specification gaming."}
+{"prompt":"Describe how preference noise affects pairwise learning."}
+{"prompt":"Explain why annotator disagreement can contain useful information."}
+{"prompt":"Compare scalar rewards with general pairwise preferences."}
+{"prompt":"Describe the meaning of exploitability in a two-player game."}
+{"prompt":"Explain why an average policy can behave differently from the last iterate."}
+{"prompt":"Give an intuitive explanation of mirror descent."}
+{"prompt":"Describe why an extragradient step can reduce cycling."}
+{"prompt":"Explain the purpose of a proximal update."}
+{"prompt":"Compare a regularized Nash equilibrium with an unregularized one."}
+{"prompt":"Describe how temperature changes a Gibbs distribution."}
+{"prompt":"Explain why low rejection-sampling acceptance rates are costly."}
+{"prompt":"Give a concise derivation of an acceptance probability in rejection sampling."}
+{"prompt":"Describe the difference between sampling bias and sampling variance."}
+{"prompt":"Explain why finite inner-loop samples can bias a nonlinear estimator."}
+{"prompt":"Give three metrics for evaluating an alignment algorithm."}
+{"prompt":"Describe a useful pairwise evaluation matrix for language models."}
+{"prompt":"Explain how worst-case win rate differs from average win rate."}
+{"prompt":"Give a concise definition of a preference-model call."}
+{"prompt":"Describe why generated-token count is a useful compute proxy."}
+{"prompt":"Explain the difference between allocated GPU-hours and active GPU time."}
+{"prompt":"Give three steps for making a cluster experiment reproducible."}
+{"prompt":"Describe why environment versions should be frozen."}
+{"prompt":"Explain the role of a job scheduler on an HPC cluster."}
+{"prompt":"Compare an interactive GPU job with a batch job."}
+{"prompt":"Describe how to detect that a distributed worker is stalled."}
+{"prompt":"Explain why logs should include both configuration and metrics."}
+{"prompt":"Give a concise checkpoint-retention policy for pilot experiments."}
+{"prompt":"Describe why a smoke test should be small but end to end."}
+{"prompt":"Explain how to distinguish an infrastructure failure from an algorithm failure."}
+{"prompt":"Give three ways to reduce unnecessary GPU idle time."}
+{"prompt":"Describe why identical generation settings matter in a fair comparison."}
+{"prompt":"Explain why baselines should share the same base and reference models."}
+{"prompt":"Give a concise protocol for tuning all compared methods fairly."}
+{"prompt":"Describe how hidden differences in prompt preprocessing can affect results."}
+{"prompt":"Explain why the same preference oracle should be used across methods."}
+{"prompt":"Give three reasons to report a full pairwise win-rate matrix."}
+{"prompt":"Describe one limitation of using an LLM as an evaluation judge."}
+{"prompt":"Explain position bias in pairwise language-model evaluation."}
+{"prompt":"Give a procedure for reducing order bias in pairwise judgments."}
+{"prompt":"Describe why response length can confound model evaluation."}
+{"prompt":"Explain what a length-controlled win rate attempts to measure."}
+{"prompt":"Give three qualitative checks for aligned model responses."}
+{"prompt":"Describe how a mixture of preference models can create nontransitivity."}
+{"prompt":"Explain why a single Bradley-Terry reward may miss cyclic preferences."}
+{"prompt":"Give an example where two reasonable evaluators disagree systematically."}
+{"prompt":"Describe how a Nash policy can be robust to heterogeneous preferences."}
+{"prompt":"Explain the difference between Pareto optimality and Nash equilibrium."}
+{"prompt":"Give a concise explanation of minimax robustness."}
+{"prompt":"Describe why uniqueness of an equilibrium can simplify convergence analysis."}
+{"prompt":"Explain how KL regularization can select among otherwise similar policies."}
+{"prompt":"Give three assumptions behind a policy-space convergence theorem."}
+{"prompt":"Describe why neural parameterization breaks convexity in policy space."}
+{"prompt":"Explain the difference between global convergence and stationarity."}
+{"prompt":"Give a concise interpretation of a linear convergence rate."}
+{"prompt":"Describe why an asymptotic rate does not determine wall-clock efficiency."}
+{"prompt":"Explain how oracle complexity differs from iteration complexity."}
+{"prompt":"Give three diagnostics for a PPO run with almost zero clipping."}
+{"prompt":"Describe why a very small learning rate can hide implementation bugs."}
+{"prompt":"Explain what a critic loss trend can and cannot tell us."}
+{"prompt":"Give a concise reason to monitor response truncation."}
+{"prompt":"Describe how increasing maximum generation length affects compute cost."}
+{"prompt":"Explain why a four-step pilot cannot establish an improving reward trend."}
