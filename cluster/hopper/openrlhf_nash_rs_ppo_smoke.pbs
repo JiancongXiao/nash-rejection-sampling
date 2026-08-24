@@ -23,7 +23,8 @@ HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
 MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
 RUN_ROOT="$SCRATCH_ROOT/results/openrlhf-nashrs-ppo/${PBS_JOBID}"
 JOB_NUMBER="${PBS_JOBID%%.*}"
-RAY_ROOT="$SCRATCH_ROOT/r/$JOB_NUMBER"
+RAY_ROOT="/tmp/nashrs-ray-$JOB_NUMBER"
+RAY_LOG_ARCHIVE="$RUN_ROOT/ray-logs"
 SAVE_PATH="$RUN_ROOT/actor"
 CKPT_PATH="$RUN_ROOT/deepspeed"
 VERIFY_OUTPUT="$RUN_ROOT/parameter_update.json"
@@ -51,10 +52,18 @@ mkdir -p \
   "$SCRATCH_ROOT/cache/huggingface" \
   "$SCRATCH_ROOT/cache/torch" \
   "$SCRATCH_ROOT/cache/triton" \
-  "$SCRATCH_ROOT/ray" \
-  "$RAY_ROOT" \
   "$SCRATCH_ROOT/tmp" \
   "$RUN_ROOT"
+
+archive_ray_logs() {
+  local session
+  session="$(readlink -f "$RAY_ROOT/session_latest" 2>/dev/null || true)"
+  if [[ -n "$session" && -d "$session/logs" ]]; then
+    mkdir -p "$RAY_LOG_ARCHIVE"
+    cp -a "$session/logs/." "$RAY_LOG_ARCHIVE/" || true
+  fi
+}
+trap archive_ray_logs EXIT
 
 echo "Job ID: ${PBS_JOBID:-unknown}"
 echo "Host: $(hostname)"
@@ -75,7 +84,7 @@ singularity exec --nv "$IMAGE" env \
   TORCH_HOME="$SCRATCH_ROOT/cache/torch" \
   TRITON_CACHE_DIR="$SCRATCH_ROOT/cache/triton" \
   TMPDIR="$SCRATCH_ROOT/tmp" \
-  RAY_TMPDIR="$SCRATCH_ROOT/r" \
+  RAY_TMPDIR="/tmp" \
   NASHRS_RAY_TMPDIR="$RAY_ROOT" \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
   TOKENIZERS_PARALLELISM=true \
