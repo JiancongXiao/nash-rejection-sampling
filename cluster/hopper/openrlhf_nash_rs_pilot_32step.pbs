@@ -1,0 +1,46 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_p32
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=02:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+export NASHRS_RUN_LABEL="32-step fixed-eval pilot"
+export NASHRS_RESULTS_NAMESPACE="openrlhf-nashrs-pilot-32step"
+export NASHRS_PROMPT_DATA="$PBS_O_WORKDIR/examples/data/ppo_pilot_prompts_128.jsonl"
+export NASHRS_EVAL_PROMPT_DATA="$PBS_O_WORKDIR/examples/data/ppo_eval_prompts_16.jsonl"
+export NASHRS_MAX_SAMPLES=128
+export NASHRS_NUM_EPISODES=2
+
+# 128 prompts x 2 episodes / rollout batch 8 = 32 optimizer steps.
+export NASHRS_ROLLOUT_BATCH_SIZE=8
+export NASHRS_MICRO_ROLLOUT_BATCH_SIZE=2
+export NASHRS_VLLM_GENERATE_BATCH_SIZE=4
+export NASHRS_TRAIN_BATCH_SIZE=8
+export NASHRS_MICRO_TRAIN_BATCH_SIZE=2
+
+export NASHRS_PROMPT_MAX_LEN=128
+export NASHRS_GENERATE_MAX_LEN=256
+export NASHRS_ACTOR_LR=1e-6
+export NASHRS_CRITIC_LR=1e-5
+export NASHRS_LR_WARMUP_RATIO=0.0
+export NASHRS_LR_SCHEDULER=constant
+export NASHRS_VERIFY_PARAMETER_UPDATE=0
+
+# Save policy-only Hugging Face checkpoints for fixed-prompt evaluation.
+export NASHRS_SAVE_STEPS=8
+export NASHRS_MAX_CKPT_NUM=4
+export NASHRS_RUN_FIXED_EVAL=1
+
+export NASHRS_B1=2
+export NASHRS_B2=2
+export NASHRS_PROPOSAL_BATCH_SIZE=4
+export NASHRS_MAX_PROPOSALS=64
+export NASHRS_SEED=47
+
+exec bash cluster/hopper/openrlhf_nash_rs_ppo_smoke.pbs
