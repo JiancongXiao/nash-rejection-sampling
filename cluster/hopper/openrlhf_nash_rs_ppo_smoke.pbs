@@ -16,11 +16,11 @@ module load singularity
 IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
 SCRATCH_ROOT="/scratch/jiancongxiao"
 VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
-MODEL="Qwen/Qwen2.5-0.5B-Instruct"
+MODEL_ID="Qwen/Qwen2.5-0.5B-Instruct"
 PM_MODEL="OpenAssistant/reward-model-deberta-v3-large-v2"
 PM_REVISION="c355404efa9ad2ad069f3a197cae0523c14244fc"
 HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
-MODEL_REF="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct/refs/main"
+MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
 RUN_ROOT="$SCRATCH_ROOT/results/openrlhf-nashrs-ppo/${PBS_JOBID}"
 SAVE_PATH="$RUN_ROOT/actor"
 CKPT_PATH="$RUN_ROOT/deepspeed"
@@ -30,11 +30,20 @@ if [[ ! -x "$VENV/bin/python" ]]; then
   echo "OpenRLHF environment is missing: $VENV" >&2
   exit 2
 fi
-if [[ ! -f "$MODEL_REF" ]]; then
-  echo "Cached policy-model revision is missing: $MODEL_REF" >&2
+shopt -s nullglob
+MODEL_SNAPSHOTS=("$MODEL_CACHE"/snapshots/*)
+MODEL=""
+for candidate in "${MODEL_SNAPSHOTS[@]}"; do
+  if [[ -f "$candidate/config.json" ]]; then
+    MODEL="$candidate"
+    break
+  fi
+done
+if [[ -z "$MODEL" ]]; then
+  echo "No usable cached policy snapshot found under: $MODEL_CACHE/snapshots" >&2
   exit 3
 fi
-MODEL_REVISION="$(tr -d '\n' < "$MODEL_REF")"
+MODEL_REVISION="$(basename "$MODEL")"
 
 mkdir -p \
   "$SCRATCH_ROOT/cache/huggingface" \
@@ -46,7 +55,9 @@ mkdir -p \
 
 echo "Job ID: ${PBS_JOBID:-unknown}"
 echo "Host: $(hostname)"
+echo "Policy model: $MODEL_ID"
 echo "Policy revision: $MODEL_REVISION"
+echo "Local policy snapshot: $MODEL"
 echo "Run root: $RUN_ROOT"
 
 # PBS owns GPU selection. Do not set CUDA_VISIBLE_DEVICES.
@@ -70,7 +81,6 @@ singularity exec -e --nv "$IMAGE" env \
   NASHRS_MAX_PROPOSALS=64 \
   NASHRS_SEED=29 \
   NASHRS_REFERENCE_MODEL="$MODEL" \
-  NASHRS_REFERENCE_REVISION="$MODEL_REVISION" \
   NASHRS_PREFERENCE_MODEL="$PM_MODEL" \
   NASHRS_PREFERENCE_REVISION="$PM_REVISION" \
   "$VENV/bin/python" -m openrlhf.cli.train_ppo_ray \
@@ -122,7 +132,6 @@ singularity exec -e "$IMAGE" env \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
   "$VENV/bin/python" examples/verify_checkpoint_update.py \
     --base-model "$MODEL" \
-    --base-revision "$MODEL_REVISION" \
     --checkpoint "$SAVE_PATH" \
     --output "$VERIFY_OUTPUT"
 
