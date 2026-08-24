@@ -209,6 +209,12 @@ class AgentExecutor(AgentExecutorBase):
                 "nashrs/mean_accepted_g_hat": float(
                     sum(g_hat for _, g_hat in accepted) / self.b2
                 ),
+                "nashrs/rollout_finished_by_length": float(
+                    rollout.finish_reason == "length"
+                ),
+                "nashrs/rollout_finished_by_stop": float(
+                    rollout.finish_reason == "stop"
+                ),
                 "nashrs/wall_time_seconds": float(elapsed),
                 "nashrs/gpu_hours": float(elapsed / 3600.0),
             },
