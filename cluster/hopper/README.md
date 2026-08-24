@@ -161,3 +161,20 @@ With rollout and train batch sizes of 8, this produces 16 global optimizer
 steps. It keeps the actor learning rate at `1e-6`, critic learning rate at
 `1e-5`, and `B1=B2=2`. Results are written under
 `/scratch/jiancongxiao/results/openrlhf-nashrs-pilot-128/JOB_ID/`.
+
+## 32-step pilot with fixed evaluation
+
+Submit the first learning-curve pilot with:
+
+```bash
+qsub cluster/hopper/openrlhf_nash_rs_pilot_32step.pbs
+```
+
+It runs two episodes over the 128 training prompts, for 32 optimizer steps in
+total, and raises the response budget to 256 tokens. Policy-only Hugging Face
+checkpoints are saved at steps 8, 16, 24, and 32. After training, each
+checkpoint and the common base model are greedily evaluated on the same 16
+held-out prompts with the same pinned preference model. The fixed evaluation
+writes `fixed_eval/responses.jsonl` and `fixed_eval/summary.json`, including
+mean scalar reward, the pairwise matrix, average and worst-case win rates,
+empirical exploitability, response length, and truncation rate.
