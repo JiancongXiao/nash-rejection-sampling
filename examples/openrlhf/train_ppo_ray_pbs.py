@@ -63,7 +63,8 @@ def main() -> None:
     import ray
     import torch
 
-    print(f"PBS GPU assignment: {original_devices}", flush=True)
+    pbs_assignment = os.environ.get("NASHRS_PBS_GPU_ASSIGNMENT", original_devices)
+    print(f"PBS GPU assignment: {pbs_assignment}", flush=True)
     print(f"vLLM-compatible CUDA_VISIBLE_DEVICES: {visible_devices}", flush=True)
     gpu_count = torch.cuda.device_count()
     print(f"PyTorch visible GPUs: {gpu_count}", flush=True)
