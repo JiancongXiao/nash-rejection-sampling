@@ -92,3 +92,6 @@ It combines Qwen2.5-0.5B vLLM generations with the MIT-licensed
 `OpenAssistant/reward-model-deberta-v3-large-v2` scalar reward model. Pairwise
 probabilities use the BTL map `sigmoid(r_left-r_right)`. The same oracle API
 also supports weighted mixtures of reward models for later non-BT experiments.
+The job disables the Xet transport and retries a pinned model snapshot over the
+regular Hub HTTP path because Hopper may reset connections to the Xet CAS
+endpoint.
