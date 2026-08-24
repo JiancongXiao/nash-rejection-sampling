@@ -13,6 +13,7 @@ COST_FIELDS = (
     "nashrs/preference_model_calls",
     "nashrs/generated_tokens",
     "nashrs/proposals",
+    "nashrs/acceptance_trials",
     "nashrs/accepted",
 )
 
@@ -41,6 +42,24 @@ def parse_step_lines(lines: Iterable[str], samples_per_step: int = 1) -> list[di
             suffix_name = field.split("/", maxsplit=1)[-1]
             record[f"nashrs/step_total_{suffix_name}"] = step_total
             record[f"nashrs/cumulative_total_{suffix_name}"] = cumulative[field]
+        step_accepted = record.get("nashrs/step_total_accepted", 0.0)
+        step_trials = record.get("nashrs/step_total_acceptance_trials", 0.0)
+        step_proposals = record.get("nashrs/step_total_proposals", 0.0)
+        record["nashrs/aggregate_acceptance_rate"] = (
+            step_accepted / step_trials if step_trials else 0.0
+        )
+        record["nashrs/aggregate_proposal_efficiency"] = (
+            step_accepted / step_proposals if step_proposals else 0.0
+        )
+        cumulative_accepted = cumulative["nashrs/accepted"]
+        cumulative_trials = cumulative["nashrs/acceptance_trials"]
+        cumulative_proposals = cumulative["nashrs/proposals"]
+        record["nashrs/cumulative_acceptance_rate"] = (
+            cumulative_accepted / cumulative_trials if cumulative_trials else 0.0
+        )
+        record["nashrs/cumulative_proposal_efficiency"] = (
+            cumulative_accepted / cumulative_proposals if cumulative_proposals else 0.0
+        )
         # Agent GPU-hours are also batch-averaged, but executions may overlap.
         # Their sum measures sample work, not PBS allocated wall-clock GPU-hours.
         step_sample_gpu_hours = (
