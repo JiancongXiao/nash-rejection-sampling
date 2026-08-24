@@ -1,0 +1,16 @@
+{"prompt":"Explain in plain language why a scientific result should be reproducible."}
+{"prompt":"Give a simple real-world example of a Nash equilibrium."}
+{"prompt":"Compare precision and recall in a medical screening example."}
+{"prompt":"Describe two risks of optimizing a language model against an imperfect reward model."}
+{"prompt":"Explain why an intransitive preference cannot always be represented by one score."}
+{"prompt":"Give a concise protocol for comparing two machine-learning systems fairly."}
+{"prompt":"Explain the purpose of KL regularization in policy optimization."}
+{"prompt":"Describe how rejection sampling works and when it becomes inefficient."}
+{"prompt":"Explain the difference between average-case and worst-case performance."}
+{"prompt":"Give three checks for detecting data leakage in an experiment."}
+{"prompt":"Describe why uncertainty estimates matter when reporting benchmark results."}
+{"prompt":"Explain how distribution shift can cause a deployed model to fail."}
+{"prompt":"Compare global convergence with convergence to a stationary point."}
+{"prompt":"Explain why response length can bias language-model evaluation."}
+{"prompt":"Give a short example of reward hacking."}
+{"prompt":"Describe what an ablation study can reveal about a new algorithm."}
