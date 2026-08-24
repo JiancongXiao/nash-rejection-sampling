@@ -59,9 +59,10 @@ echo "Policy model: $MODEL_ID"
 echo "Policy revision: $MODEL_REVISION"
 echo "Local policy snapshot: $MODEL"
 echo "Run root: $RUN_ROOT"
+echo "PBS CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<unset>}"
 
 # PBS owns GPU selection. Do not set CUDA_VISIBLE_DEVICES.
-singularity exec -e --nv "$IMAGE" env \
+singularity exec --nv "$IMAGE" env \
   HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
   HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
   HF_HUB_DISABLE_XET=1 \
@@ -71,6 +72,7 @@ singularity exec -e --nv "$IMAGE" env \
   TRITON_CACHE_DIR="$SCRATCH_ROOT/cache/triton" \
   TMPDIR="$SCRATCH_ROOT/tmp" \
   RAY_TMPDIR="$SCRATCH_ROOT/ray" \
+  NASHRS_RAY_TMPDIR="$SCRATCH_ROOT/ray/${PBS_JOBID}" \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
   TOKENIZERS_PARALLELISM=true \
   OMP_NUM_THREADS=4 \
@@ -83,7 +85,7 @@ singularity exec -e --nv "$IMAGE" env \
   NASHRS_REFERENCE_MODEL="$MODEL" \
   NASHRS_PREFERENCE_MODEL="$PM_MODEL" \
   NASHRS_PREFERENCE_REVISION="$PM_REVISION" \
-  "$VENV/bin/python" -m openrlhf.cli.train_ppo_ray \
+  "$VENV/bin/python" "$PBS_O_WORKDIR/examples/openrlhf/train_ppo_ray_pbs.py" \
     --ref_num_nodes 1 \
     --ref_num_gpus_per_node 1 \
     --critic_num_nodes 1 \
