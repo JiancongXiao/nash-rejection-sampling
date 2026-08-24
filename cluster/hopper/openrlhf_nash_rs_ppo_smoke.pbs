@@ -22,16 +22,28 @@ PM_REVISION="c355404efa9ad2ad069f3a197cae0523c14244fc"
 HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
 MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
 CUDA_DRIVER_LIB="$SCRATCH_ROOT/cuda-driver-lib"
-RUN_ROOT="$SCRATCH_ROOT/results/openrlhf-nashrs-ppo/${PBS_JOBID}"
+RUN_LABEL="${NASHRS_RUN_LABEL:-smoke test}"
+RESULTS_NAMESPACE="${NASHRS_RESULTS_NAMESPACE:-openrlhf-nashrs-ppo}"
+PROMPT_DATA="${NASHRS_PROMPT_DATA:-$PBS_O_WORKDIR/examples/data/ppo_smoke_prompts.jsonl}"
+MAX_SAMPLES="${NASHRS_MAX_SAMPLES:-2}"
+TRAIN_BATCH_SIZE="${NASHRS_TRAIN_BATCH_SIZE:-2}"
+MICRO_TRAIN_BATCH_SIZE="${NASHRS_MICRO_TRAIN_BATCH_SIZE:-1}"
+ROLLOUT_BATCH_SIZE="${NASHRS_ROLLOUT_BATCH_SIZE:-2}"
+MICRO_ROLLOUT_BATCH_SIZE="${NASHRS_MICRO_ROLLOUT_BATCH_SIZE:-1}"
+VLLM_GENERATE_BATCH_SIZE="${NASHRS_VLLM_GENERATE_BATCH_SIZE:-2}"
+ACTOR_LR="${NASHRS_ACTOR_LR:-1e-3}"
+CRITIC_LR="${NASHRS_CRITIC_LR:-1e-5}"
+LR_WARMUP_RATIO="${NASHRS_LR_WARMUP_RATIO:-0.0}"
+LR_SCHEDULER="${NASHRS_LR_SCHEDULER:-constant}"
+VERIFY_PARAMETER_UPDATE="${NASHRS_VERIFY_PARAMETER_UPDATE:-1}"
+RUN_ROOT="$SCRATCH_ROOT/results/$RESULTS_NAMESPACE/${PBS_JOBID}"
 JOB_NUMBER="${PBS_JOBID%%.*}"
 RAY_ROOT="/tmp/nashrs-ray-$JOB_NUMBER"
 RAY_LOG_ARCHIVE="$RUN_ROOT/ray-logs"
 SAVE_PATH="$RUN_ROOT/actor"
 CKPT_PATH="$RUN_ROOT/deepspeed"
 VERIFY_OUTPUT="$RUN_ROOT/parameter_update.json"
-# Deliberately high for a one-step BF16 parameter-change sentinel only.
-# Production experiment configs must use their separately tuned learning rate.
-SMOKE_ACTOR_LR="1e-3"
+METRICS_OUTPUT="$RUN_ROOT/step_metrics.jsonl"
 
 if [[ ! -x "$VENV/bin/python" ]]; then
   echo "OpenRLHF environment is missing: $VENV" >&2
@@ -77,6 +89,7 @@ trap archive_ray_logs EXIT
 
 echo "Job ID: ${PBS_JOBID:-unknown}"
 echo "Host: $(hostname)"
+echo "Run label: $RUN_LABEL"
 echo "Policy model: $MODEL_ID"
 echo "Policy revision: $MODEL_REVISION"
 echo "Local policy snapshot: $MODEL"
@@ -128,11 +141,11 @@ singularity exec --nv "$IMAGE" env \
   TOKENIZERS_PARALLELISM=true \
   OMP_NUM_THREADS=4 \
   NASHRS_TAU=1.0 \
-  NASHRS_B1=2 \
-  NASHRS_B2=2 \
-  NASHRS_PROPOSAL_BATCH_SIZE=4 \
-  NASHRS_MAX_PROPOSALS=64 \
-  NASHRS_SEED=29 \
+  NASHRS_B1="${NASHRS_B1:-2}" \
+  NASHRS_B2="${NASHRS_B2:-2}" \
+  NASHRS_PROPOSAL_BATCH_SIZE="${NASHRS_PROPOSAL_BATCH_SIZE:-4}" \
+  NASHRS_MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}" \
+  NASHRS_SEED="${NASHRS_SEED:-29}" \
   NASHRS_REFERENCE_MODEL="$MODEL" \
   NASHRS_PREFERENCE_MODEL="$PM_MODEL" \
   NASHRS_PREFERENCE_REVISION="$PM_REVISION" \
@@ -154,25 +167,25 @@ singularity exec --nv "$IMAGE" env \
     --ckpt_path "$CKPT_PATH" \
     --save_hf_ckpt \
     --disable_ds_ckpt \
-    --micro_train_batch_size 1 \
-    --train_batch_size 2 \
-    --micro_rollout_batch_size 1 \
-    --rollout_batch_size 2 \
-    --vllm_generate_batch_size 2 \
+    --micro_train_batch_size "$MICRO_TRAIN_BATCH_SIZE" \
+    --train_batch_size "$TRAIN_BATCH_SIZE" \
+    --micro_rollout_batch_size "$MICRO_ROLLOUT_BATCH_SIZE" \
+    --rollout_batch_size "$ROLLOUT_BATCH_SIZE" \
+    --vllm_generate_batch_size "$VLLM_GENERATE_BATCH_SIZE" \
     --n_samples_per_prompt 1 \
     --num_episodes 1 \
     --max_epochs 1 \
-    --max_samples 2 \
+    --max_samples "$MAX_SAMPLES" \
     --prompt_max_len 128 \
     --generate_max_len 48 \
     --zero_stage 2 \
     --param_dtype bf16 \
-    --actor_learning_rate "$SMOKE_ACTOR_LR" \
-    --critic_learning_rate 1e-5 \
-    --lr_warmup_ratio 0.0 \
-    --lr_scheduler constant \
+    --actor_learning_rate "$ACTOR_LR" \
+    --critic_learning_rate "$CRITIC_LR" \
+    --lr_warmup_ratio "$LR_WARMUP_RATIO" \
+    --lr_scheduler "$LR_SCHEDULER" \
     --init_kl_coef 0.01 \
-    --prompt_data "$PBS_O_WORKDIR/examples/data/ppo_smoke_prompts.jsonl" \
+    --prompt_data "$PROMPT_DATA" \
     --input_key prompt \
     --apply_chat_template \
     --attn_implementation sdpa \
@@ -180,14 +193,22 @@ singularity exec --nv "$IMAGE" env \
     --logging_steps 1
 
 singularity exec -e "$IMAGE" env \
-  HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
-  HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
-  HF_HUB_OFFLINE=1 \
-  TRANSFORMERS_OFFLINE=1 \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
-  "$VENV/bin/python" examples/verify_checkpoint_update.py \
-    --base-model "$MODEL" \
-    --checkpoint "$SAVE_PATH" \
-    --output "$VERIFY_OUTPUT"
+  "$VENV/bin/python" examples/export_openrlhf_metrics.py \
+    --log "$PBS_O_WORKDIR/stdout.${PBS_JOBID}" \
+    --output "$METRICS_OUTPUT"
 
-echo "Nash-RS OpenRLHF PPO smoke test completed successfully."
+if [[ "$VERIFY_PARAMETER_UPDATE" == "1" ]]; then
+  singularity exec -e "$IMAGE" env \
+    HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+    HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    PYTHONPATH="$PBS_O_WORKDIR/src" \
+    "$VENV/bin/python" examples/verify_checkpoint_update.py \
+      --base-model "$MODEL" \
+      --checkpoint "$SAVE_PATH" \
+      --output "$VERIFY_OUTPUT"
+fi
+
+echo "Nash-RS OpenRLHF $RUN_LABEL completed successfully."
