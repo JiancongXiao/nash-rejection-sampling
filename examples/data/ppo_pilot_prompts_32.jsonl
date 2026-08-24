@@ -1,0 +1,32 @@
+{"prompt":"Explain why reproducibility is important in machine learning research."}
+{"prompt":"Describe a Nash equilibrium using a simple everyday analogy."}
+{"prompt":"Give three practical ways to reduce overfitting in a neural network."}
+{"prompt":"Explain the difference between precision and recall."}
+{"prompt":"Summarize why data quality matters more than dataset size in some settings."}
+{"prompt":"Describe one benefit and one limitation of reinforcement learning from human feedback."}
+{"prompt":"Explain gradient descent to a first-year university student."}
+{"prompt":"Give a concise checklist for evaluating a machine-learning experiment."}
+{"prompt":"Explain what calibration means for a probabilistic classifier."}
+{"prompt":"Compare supervised learning and reinforcement learning in four sentences."}
+{"prompt":"Describe how a cyclic preference can violate a scalar reward model."}
+{"prompt":"Explain why train-test leakage leads to misleading results."}
+{"prompt":"Give a short example of Simpson's paradox."}
+{"prompt":"Explain the exploration-exploitation tradeoff with an example."}
+{"prompt":"List three reasons a language-model benchmark may become unreliable."}
+{"prompt":"Describe what KL divergence measures without using advanced mathematics."}
+{"prompt":"Explain why last-iterate convergence can matter in game optimization."}
+{"prompt":"Give a concise argument for reporting uncertainty alongside an average score."}
+{"prompt":"Describe the purpose of a validation set."}
+{"prompt":"Explain why a larger model is not always a better experimental baseline."}
+{"prompt":"Give three suggestions for making a scientific figure easier to interpret."}
+{"prompt":"Explain the difference between correlation and causation with an example."}
+{"prompt":"Describe a fair protocol for comparing two optimization algorithms."}
+{"prompt":"Explain why random seeds should be reported in empirical research."}
+{"prompt":"Give a brief introduction to pairwise preference learning."}
+{"prompt":"Describe one way to detect distribution shift after deployment."}
+{"prompt":"Explain why reward hacking is a concern in model alignment."}
+{"prompt":"Give a short example of an intransitive preference cycle."}
+{"prompt":"Explain the role of a reference policy in KL-regularized optimization."}
+{"prompt":"Describe why wall-clock time and sample count are both useful efficiency metrics."}
+{"prompt":"Give a concise explanation of rejection sampling."}
+{"prompt":"Explain why an ablation study strengthens an empirical claim."}
