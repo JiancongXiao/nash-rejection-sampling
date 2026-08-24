@@ -95,3 +95,18 @@ also supports weighted mixtures of reward models for later non-BT experiments.
 The job disables the Xet transport and retries a pinned model snapshot over the
 regular Hub HTTP path because Hopper may reset connections to the Xet CAS
 endpoint.
+
+## OpenRLHF Nash-RS PPO update
+
+After the real preference-model smoke test succeeds, submit:
+
+```bash
+qsub cluster/hopper/openrlhf_nash_rs_ppo_smoke.pbs
+```
+
+This one-H200 vertical slice performs one small OpenRLHF PPO run on two prompts.
+The custom agent generates the rollout and `B1` samples from the synchronized
+current vLLM policy, samples proposals from a separately loaded fixed reference
+checkpoint, scores them with the real preference model, and applies the
+correct Gibbs rejection event. The final actor is saved under scratch and a
+post-run tensor comparison records a nonzero parameter update.
