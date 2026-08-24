@@ -9,20 +9,22 @@ from typing import Iterable
 
 
 STEP_MARKER = "✨ Global step "
-CUMULATIVE_FIELDS = (
+COST_FIELDS = (
     "nashrs/preference_model_calls",
     "nashrs/generated_tokens",
     "nashrs/proposals",
     "nashrs/accepted",
-    "nashrs/gpu_hours",
 )
 
 
-def parse_step_lines(lines: Iterable[str]) -> list[dict]:
-    """Parse OpenRLHF global-step dictionaries and add cumulative costs."""
+def parse_step_lines(lines: Iterable[str], samples_per_step: int = 1) -> list[dict]:
+    """Parse global-step dictionaries and recover totals from batch means."""
 
+    if samples_per_step <= 0:
+        raise ValueError("samples_per_step must be positive")
     records = []
-    cumulative = {field: 0.0 for field in CUMULATIVE_FIELDS}
+    cumulative = {field: 0.0 for field in COST_FIELDS}
+    cumulative_sample_gpu_hours = 0.0
     for line in lines:
         if STEP_MARKER not in line:
             continue
@@ -32,16 +34,33 @@ def parse_step_lines(lines: Iterable[str]) -> list[dict]:
         if not isinstance(metrics, dict):
             raise ValueError("OpenRLHF step payload is not a dictionary")
         record = {"step": int(step_text.strip()), **metrics}
-        for field in CUMULATIVE_FIELDS:
-            cumulative[field] += float(metrics.get(field, 0.0))
+        record["nashrs/samples_in_step"] = samples_per_step
+        for field in COST_FIELDS:
+            step_total = float(metrics.get(field, 0.0)) * samples_per_step
+            cumulative[field] += step_total
             suffix_name = field.split("/", maxsplit=1)[-1]
-            record[f"nashrs/cumulative_{suffix_name}"] = cumulative[field]
+            record[f"nashrs/step_total_{suffix_name}"] = step_total
+            record[f"nashrs/cumulative_total_{suffix_name}"] = cumulative[field]
+        # Agent GPU-hours are also batch-averaged, but executions may overlap.
+        # Their sum measures sample work, not PBS allocated wall-clock GPU-hours.
+        step_sample_gpu_hours = (
+            float(metrics.get("nashrs/gpu_hours", 0.0)) * samples_per_step
+        )
+        cumulative_sample_gpu_hours += step_sample_gpu_hours
+        record["nashrs/step_sum_sample_gpu_hours"] = step_sample_gpu_hours
+        record["nashrs/cumulative_sum_sample_gpu_hours"] = (
+            cumulative_sample_gpu_hours
+        )
         records.append(record)
     return records
 
 
-def export_step_metrics(log_path: Path, output_path: Path) -> list[dict]:
-    records = parse_step_lines(log_path.read_text(errors="replace").splitlines())
+def export_step_metrics(
+    log_path: Path, output_path: Path, samples_per_step: int = 1
+) -> list[dict]:
+    records = parse_step_lines(
+        log_path.read_text(errors="replace").splitlines(), samples_per_step
+    )
     if not records:
         raise ValueError(f"No OpenRLHF global-step metrics found in {log_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
