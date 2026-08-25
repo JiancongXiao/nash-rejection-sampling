@@ -31,6 +31,8 @@ class CheckpointEvaluationTest(unittest.TestCase):
                 (path / "config.json").write_text("{}")
             models = MODULE.discover_models(base, checkpoints, final)
             self.assertEqual([name for name, _ in models], ["base", "step_8", "step_16"])
+            selected = MODULE.discover_models(base, checkpoints, final, {16})
+            self.assertEqual([name for name, _ in selected], ["base", "step_16"])
 
     def test_loads_jsonl_prompts(self):
         with tempfile.TemporaryDirectory() as root_text:
@@ -42,6 +44,18 @@ class CheckpointEvaluationTest(unittest.TestCase):
                 + "\n"
             )
             self.assertEqual(MODULE.load_prompts(path), ["first", "second"])
+
+    def test_bootstrap_intervals_are_deterministic(self):
+        methods = ["a", "b"]
+        scores = {"a": [1.0, 2.0], "b": [0.0, 1.0]}
+        per_prompt = [
+            [[0.5, 0.5], [0.75, 0.75]],
+            [[0.25, 0.25], [0.5, 0.5]],
+        ]
+        first = MODULE.bootstrap_intervals(methods, scores, per_prompt, 50, 7)
+        second = MODULE.bootstrap_intervals(methods, scores, per_prompt, 50, 7)
+        self.assertEqual(first, second)
+        self.assertEqual(first["average_win_rate"]["a"], [0.75, 0.75])
 
 
 if __name__ == "__main__":
