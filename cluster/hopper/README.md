@@ -245,3 +245,20 @@ PYTHONPATH=src python3 examples/sweep_general_preference_mixture.py \
 
 This is parameter selection on the initial 32 prompts. Any selected mixture
 must subsequently be confirmed on independent prompts before PPO training.
+
+## General-preference 24-step PPO pilot
+
+The primary mixture can be trained directly; observed cycles are not a
+requirement for NLHF. The pilot freezes the equal component weights and the
+score-standard-deviation temperatures measured by the validation job, then
+uses the same 120 prompts and 24-step PPO recipe as the BTL replication:
+
+```bash
+qsub cluster/hopper/openrlhf_nash_rs_general_preference_24step.pbs
+```
+
+Results are written under
+`/scratch/jiancongxiao/results/openrlhf-nashrs-general-preference-24step/JOB_ID/`.
+Preference-model accounting counts a comparison once per reward component, so
+the two-component oracle reports twice the component evaluations of the
+single-BTL setup for the same sampled pairs.
