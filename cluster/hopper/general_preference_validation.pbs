@@ -1,0 +1,76 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_gpval
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+module load singularity
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+SCRATCH_ROOT="/scratch/jiancongxiao"
+VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
+POLICY_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+OUTPUT="$SCRATCH_ROOT/results/general-preference-validation/${PBS_JOBID}/diagnostics.json"
+
+mkdir -p "$(dirname "$OUTPUT")" "$SCRATCH_ROOT/tmp"
+
+# Resolve the already cached policy snapshot.
+shopt -s nullglob
+snapshots=("$POLICY_CACHE"/snapshots/*)
+POLICY_MODEL=""
+for candidate in "${snapshots[@]}"; do
+  if [[ -f "$candidate/config.json" ]]; then POLICY_MODEL="$candidate"; break; fi
+done
+if [[ -z "$POLICY_MODEL" ]]; then
+  echo "No cached Qwen2.5-0.5B policy snapshot found" >&2
+  exit 2
+fi
+
+# Cache both pinned reward models before initializing vLLM.
+singularity exec -e "$IMAGE" env \
+  HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+  HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+  HF_HUB_DISABLE_XET=1 \
+  HF_HUB_DOWNLOAD_TIMEOUT=300 \
+  TMPDIR="$SCRATCH_ROOT/tmp" \
+  "$VENV/bin/python" - "$CONFIG" <<'PY'
+import json, sys
+from huggingface_hub import snapshot_download
+for component in json.load(open(sys.argv[1]))["components"]:
+    print("Caching", component["model"], component.get("revision"), flush=True)
+    snapshot_download(
+        component["model"],
+        revision=component.get("revision"),
+        max_workers=1,
+    )
+PY
+
+singularity exec --nv "$IMAGE" env \
+  HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+  HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+  HF_HUB_DISABLE_XET=1 \
+  HF_HUB_OFFLINE=1 \
+  TRANSFORMERS_OFFLINE=1 \
+  TOKENIZERS_PARALLELISM=true \
+  PYTHONPATH="$PBS_O_WORKDIR/src" \
+  TMPDIR="$SCRATCH_ROOT/tmp" \
+  VLLM_WORKER_MULTIPROC_METHOD=spawn \
+  "$VENV/bin/python" examples/validate_general_preference.py \
+    --config "$CONFIG" \
+    --prompts examples/data/ppo_test_prompts_128.jsonl \
+    --policy-model "$POLICY_MODEL" \
+    --max-prompts 32 \
+    --responses-per-prompt 4 \
+    --max-new-tokens 256 \
+    --temperature-calibration score_std \
+    --output "$OUTPUT"
+
+echo "General-preference validation completed: $OUTPUT"
