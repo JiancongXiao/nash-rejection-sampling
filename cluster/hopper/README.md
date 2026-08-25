@@ -233,3 +233,15 @@ Inspect `component_disagreement_rate`, `cycle_rate`, `bt_logit_rmse`, and
 is BTL. The job calibrates each component's BTL temperature by its score
 standard deviation on the generated response pool and reports the effective
 temperatures to freeze in subsequent training.
+
+The validation output contains all component scores, so mixture parameters can
+be screened without another GPU allocation:
+
+```bash
+PYTHONPATH=src python3 examples/sweep_general_preference_mixture.py \
+  --input /scratch/jiancongxiao/results/general-preference-validation/JOB_ID/diagnostics.json \
+  --output /scratch/jiancongxiao/results/general-preference-validation/JOB_ID/mixture_sweep.json
+```
+
+This is parameter selection on the initial 32 prompts. Any selected mixture
+must subsequently be confirmed on independent prompts before PPO training.
