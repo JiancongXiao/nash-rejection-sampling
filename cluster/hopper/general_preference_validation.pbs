@@ -34,6 +34,31 @@ if [[ -z "$POLICY_MODEL" ]]; then
   exit 2
 fi
 
+# PBS exposes the allocated device as a GPU UUID, while vLLM 0.15 parses
+# CUDA_VISIBLE_DEVICES as integer indices. Resolve the assigned UUID without
+# changing which physical GPU the job owns.
+PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
+if [[ "$PBS_GPU_ASSIGNMENT" == GPU-* ]]; then
+  VLLM_GPU_INDEX="$(
+    nvidia-smi \
+      --id="$PBS_GPU_ASSIGNMENT" \
+      --query-gpu=index \
+      --format=csv,noheader,nounits \
+      | head -1 | tr -d '[:space:]'
+  )"
+elif [[ "$PBS_GPU_ASSIGNMENT" =~ ^[0-9]+$ ]]; then
+  VLLM_GPU_INDEX="$PBS_GPU_ASSIGNMENT"
+else
+  echo "Unsupported or missing PBS GPU assignment: $PBS_GPU_ASSIGNMENT" >&2
+  exit 3
+fi
+if [[ ! "$VLLM_GPU_INDEX" =~ ^[0-9]+$ ]]; then
+  echo "Failed to resolve PBS GPU assignment: $PBS_GPU_ASSIGNMENT" >&2
+  exit 4
+fi
+echo "PBS GPU assignment: $PBS_GPU_ASSIGNMENT"
+echo "vLLM-compatible GPU index: $VLLM_GPU_INDEX"
+
 # Cache both pinned reward models before initializing vLLM.
 singularity exec -e "$IMAGE" env \
   HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
@@ -54,6 +79,8 @@ for component in json.load(open(sys.argv[1]))["components"]:
 PY
 
 singularity exec --nv "$IMAGE" env \
+  CUDA_VISIBLE_DEVICES="$VLLM_GPU_INDEX" \
+  NASHRS_PBS_GPU_ASSIGNMENT="$PBS_GPU_ASSIGNMENT" \
   HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
   HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
   HF_HUB_DISABLE_XET=1 \
