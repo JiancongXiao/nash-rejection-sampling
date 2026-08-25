@@ -27,8 +27,14 @@ PM_REVISION="c355404efa9ad2ad069f3a197cae0523c14244fc"
 SOURCE_ROOT="$SCRATCH_ROOT/results/openrlhf-nashrs-pilot-32step/$NASHRS_SOURCE_JOB_ID"
 CHECKPOINT_ROOT="$SOURCE_ROOT/deepspeed"
 FINAL_MODEL="$SOURCE_ROOT/actor"
-OUTPUT_DIR="$SOURCE_ROOT/fixed_eval_base_tokenizer"
 CUDA_DRIVER_LIB="$SCRATCH_ROOT/cuda-driver-lib"
+PROMPT_DATA="${NASHRS_EVAL_PROMPT_DATA:-examples/data/ppo_eval_prompts_16.jsonl}"
+OUTPUT_SUBDIR="${NASHRS_EVAL_OUTPUT_SUBDIR:-fixed_eval_base_tokenizer}"
+MAX_NEW_TOKENS="${NASHRS_EVAL_MAX_NEW_TOKENS:-256}"
+BATCH_SIZE="${NASHRS_EVAL_BATCH_SIZE:-4}"
+BOOTSTRAP_SAMPLES="${NASHRS_BOOTSTRAP_SAMPLES:-2000}"
+EVAL_STEPS="${NASHRS_EVAL_STEPS:-}"
+OUTPUT_DIR="$SOURCE_ROOT/$OUTPUT_SUBDIR"
 
 shopt -s nullglob
 MODEL_SNAPSHOTS=("$MODEL_CACHE"/snapshots/*)
@@ -58,6 +64,11 @@ mkdir -p "$CUDA_DRIVER_LIB" "$OUTPUT_DIR"
 ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so"
 ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so.1"
 
+STEP_ARGS=()
+for step in $EVAL_STEPS; do
+  STEP_ARGS+=(--steps "$step")
+done
+
 singularity exec --nv "$IMAGE" env \
   CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
   TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
@@ -68,13 +79,16 @@ singularity exec --nv "$IMAGE" env \
   TRANSFORMERS_OFFLINE=1 \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
   "$VENV/bin/python" examples/evaluate_ppo_checkpoints.py \
-    --prompts examples/data/ppo_eval_prompts_16.jsonl \
+    --prompts "$PROMPT_DATA" \
     --base-model "$BASE_MODEL" \
     --checkpoint-root "$CHECKPOINT_ROOT" \
     --final-model "$FINAL_MODEL" \
     --preference-model "$PM_MODEL" \
     --preference-revision "$PM_REVISION" \
-    --max-new-tokens 256 \
+    --max-new-tokens "$MAX_NEW_TOKENS" \
+    --batch-size "$BATCH_SIZE" \
+    --bootstrap-samples "$BOOTSTRAP_SAMPLES" \
+    "${STEP_ARGS[@]}" \
     --output-dir "$OUTPUT_DIR"
 
 echo "Fixed checkpoint evaluation completed successfully: $OUTPUT_DIR"
