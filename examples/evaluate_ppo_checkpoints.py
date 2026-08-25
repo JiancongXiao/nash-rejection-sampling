@@ -7,6 +7,7 @@ import gc
 import json
 from pathlib import Path
 import re
+import random
 import time
 
 from nashrs import (
@@ -21,7 +22,10 @@ STEP_PATTERN = re.compile(r"global_step(\d+)_hf$")
 
 
 def discover_models(
-    base_model: Path, checkpoint_root: Path, final_model: Path | None
+    base_model: Path,
+    checkpoint_root: Path,
+    final_model: Path | None,
+    steps: set[int] | None = None,
 ) -> list[tuple[str, Path]]:
     models: list[tuple[str, Path]] = [("base", base_model)]
     checkpoints = []
@@ -29,7 +33,9 @@ def discover_models(
         for path in checkpoint_root.iterdir():
             match = STEP_PATTERN.fullmatch(path.name)
             if match and (path / "config.json").is_file():
-                checkpoints.append((int(match.group(1)), path))
+                step = int(match.group(1))
+                if steps is None or step in steps:
+                    checkpoints.append((step, path))
     for step, path in sorted(checkpoints):
         models.append((f"step_{step}", path))
     if not checkpoints and final_model and (final_model / "config.json").is_file():
@@ -128,8 +134,67 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--preference-revision")
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--steps", type=int, nargs="*")
+    parser.add_argument("--bootstrap-samples", type=int, default=2000)
+    parser.add_argument("--bootstrap-seed", type=int, default=20260825)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
+
+
+def percentile(values: list[float], probability: float) -> float:
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * probability
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
+def bootstrap_intervals(
+    methods: list[str],
+    scalar_scores: dict[str, list[float]],
+    per_prompt: list[list[list[float]]],
+    samples: int,
+    seed: int,
+) -> dict[str, dict[str, list[float]]]:
+    if samples <= 0:
+        raise ValueError("bootstrap_samples must be positive")
+    prompt_count = len(next(iter(scalar_scores.values())))
+    rng = random.Random(seed)
+    draws = {
+        metric: {method: [] for method in methods}
+        for metric in (
+            "mean_scalar_reward",
+            "average_win_rate",
+            "worst_case_win_rate",
+            "empirical_exploitability",
+        )
+    }
+    for _ in range(samples):
+        indices = [rng.randrange(prompt_count) for _ in range(prompt_count)]
+        matrix = [[0.5 for _ in methods] for _ in methods]
+        for i in range(len(methods)):
+            for j in range(len(methods)):
+                if i != j:
+                    matrix[i][j] = sum(per_prompt[i][j][k] for k in indices) / prompt_count
+        for i, method in enumerate(methods):
+            opponents = [matrix[i][j] for j in range(len(methods)) if j != i]
+            opponent_wins = [matrix[j][i] for j in range(len(methods)) if j != i]
+            draws["mean_scalar_reward"][method].append(
+                sum(scalar_scores[method][k] for k in indices) / prompt_count
+            )
+            draws["average_win_rate"][method].append(sum(opponents) / len(opponents))
+            draws["worst_case_win_rate"][method].append(min(opponents))
+            draws["empirical_exploitability"][method].append(
+                max(0.0, max(opponent_wins) - 0.5)
+            )
+    return {
+        metric: {
+            method: [percentile(values, 0.025), percentile(values, 0.975)]
+            for method, values in method_values.items()
+        }
+        for metric, method_values in draws.items()
+    }
 
 
 def main() -> None:
@@ -138,7 +203,15 @@ def main() -> None:
         raise ValueError("generation lengths and batch sizes must be positive")
     started = time.perf_counter()
     prompts = load_prompts(args.prompts)
-    models = discover_models(args.base_model, args.checkpoint_root, args.final_model)
+    requested_steps = set(args.steps) if args.steps else None
+    models = discover_models(
+        args.base_model, args.checkpoint_root, args.final_model, requested_steps
+    )
+    if requested_steps:
+        found_steps = {int(name.split("_", 1)[1]) for name, _ in models if name.startswith("step_")}
+        missing = requested_steps - found_steps
+        if missing:
+            raise ValueError(f"missing requested checkpoints: {sorted(missing)}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     responses = {}
@@ -189,6 +262,36 @@ def main() -> None:
     preference = MixtureBTLPreferenceOracle([BTLComponent(scalar_reward)])
     pairwise = evaluate_pairwise(prompts, responses, preference)
     methods = list(responses)
+    intervals = bootstrap_intervals(
+        methods,
+        scalar_scores,
+        pairwise.per_prompt,
+        args.bootstrap_samples,
+        args.bootstrap_seed,
+    )
+    detail_path = args.output_dir / "per_prompt_metrics.jsonl"
+    with detail_path.open("w") as handle:
+        for index, prompt in enumerate(prompts):
+            handle.write(
+                json.dumps(
+                    {
+                        "prompt_index": index,
+                        "prompt": prompt,
+                        "scalar_reward": {
+                            method: scalar_scores[method][index] for method in methods
+                        },
+                        "pairwise_probability": {
+                            left: {
+                                right: pairwise.per_prompt[i][j][index]
+                                for j, right in enumerate(methods)
+                            }
+                            for i, left in enumerate(methods)
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
     summary = {
         "prompts": len(prompts),
         "max_new_tokens": args.max_new_tokens,
@@ -207,6 +310,8 @@ def main() -> None:
         "empirical_exploitability": {
             name: pairwise.empirical_exploitability(name) for name in methods
         },
+        "bootstrap_samples": args.bootstrap_samples,
+        "confidence_intervals_95": intervals,
         "preference_model_calls": pairwise.preference_model_calls,
         "elapsed_seconds": time.perf_counter() - started,
     }
