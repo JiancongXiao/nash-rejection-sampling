@@ -65,9 +65,12 @@ ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so"
 ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so.1"
 
 STEP_ARGS=()
-for step in $EVAL_STEPS; do
-  STEP_ARGS+=(--steps "$step")
-done
+if [[ -n "$EVAL_STEPS" ]]; then
+  STEP_ARGS=(--steps)
+  for step in $EVAL_STEPS; do
+    STEP_ARGS+=("$step")
+  done
+fi
 
 singularity exec --nv "$IMAGE" env \
   CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
