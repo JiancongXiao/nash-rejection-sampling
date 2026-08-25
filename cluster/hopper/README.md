@@ -178,3 +178,18 @@ held-out prompts with the same pinned preference model. The fixed evaluation
 writes `fixed_eval/responses.jsonl` and `fixed_eval/summary.json`, including
 mean scalar reward, the pairwise matrix, average and worst-case win rates,
 empirical exploitability, response length, and truncation rate.
+
+## Independent 128-prompt checkpoint test
+
+After selecting candidate checkpoints on the 16-prompt validation set, run the
+separate test set without retraining:
+
+```bash
+qsub -v NASHRS_SOURCE_JOB_ID=TRAIN_JOB_ID \
+  cluster/hopper/independent_test_128.pbs
+```
+
+This evaluates only the base model and steps 24 and 32 on 128 new cross-domain
+prompts with a 512-token response budget. It writes per-prompt scalar rewards
+and pairwise probabilities, plus 2,000-sample bootstrap 95% confidence
+intervals, under `independent_test_128/` in the original training run.
