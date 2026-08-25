@@ -211,3 +211,25 @@ specified value. Each job saves step 24 and automatically evaluates it against
 the common base model on the independent 128-prompt test set with 2,000-sample
 bootstrap intervals. Results are isolated by PBS job ID under
 `openrlhf-nashrs-3seed-24step/`.
+
+## General-preference oracle validation
+
+Before training with the two-reward-model mixture, verify that it is
+meaningfully different from one BTL reward model:
+
+```bash
+git pull --ff-only
+qsub cluster/hopper/general_preference_validation.pbs
+```
+
+Follow `stdout.JOB_ID` and `stderr.JOB_ID`. The result is written to:
+
+```text
+/scratch/jiancongxiao/results/general-preference-validation/JOB_ID/diagnostics.json
+```
+
+Inspect `component_disagreement_rate`, `cycle_rate`, `bt_logit_rmse`, and
+`bt_probability_rmse`. A zero cycle rate alone does not imply that the mixture
+is BTL. The job calibrates each component's BTL temperature by its score
+standard deviation on the generated response pool and reports the effective
+temperatures to freeze in subsequent training.
