@@ -46,6 +46,7 @@ class AgentExecutor(AgentExecutorBase):
         self.preference_components = json.loads(components_json) if components_json else None
         self._reference_model = None
         self._preference = None
+        self._preference_component_count = 1
         self._execution_index = 0
         if self.tau <= 0.0 or self.b1 <= 0 or self.b2 <= 0:
             raise ValueError("tau, B1, and B2 must be positive")
@@ -73,6 +74,7 @@ class AgentExecutor(AgentExecutorBase):
             }
         ]
         self._preference = build_preference_oracle(component_configs, device="cuda")
+        self._preference_component_count = len(self._preference.components)
 
     @staticmethod
     def _truncate_prompt(prompt, sampling_params, max_length, tokenizer):
@@ -163,7 +165,7 @@ class AgentExecutor(AgentExecutorBase):
                     current,
                     [candidate] * self.b1,
                 )
-                preference_calls += self.b1
+                preference_calls += self.b1 * self._preference_component_count
                 g_hat = sum(probabilities) / self.b1
                 if accept_gibbs_proposal(g_hat, self.tau, rng):
                     accepted.append((candidate, g_hat))
@@ -175,7 +177,7 @@ class AgentExecutor(AgentExecutorBase):
             [response] * self.b2,
             [candidate for candidate, _ in accepted],
         )
-        preference_calls += self.b2
+        preference_calls += self.b2 * self._preference_component_count
         reward = sum(reward_probabilities) / (self.tau * self.b2)
 
         observation_tokens = prompt_ids + list(rollout.token_ids)
@@ -203,6 +205,9 @@ class AgentExecutor(AgentExecutorBase):
             "scores": min(1.0, max(0.0, self.tau * reward)),
             "extra_logs": {
                 "nashrs/preference_model_calls": float(preference_calls),
+                "nashrs/preference_components": float(
+                    self._preference_component_count
+                ),
                 "nashrs/policy_generations": float(self.b1),
                 "nashrs/reference_generations": float(proposals),
                 "nashrs/generated_tokens": float(current_tokens + reference_tokens),
