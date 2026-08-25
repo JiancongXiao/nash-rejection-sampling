@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+import json
 import math
 import os
 import random
@@ -11,7 +12,7 @@ import time
 
 from openrlhf.utils.agent import AgentExecutorBase
 
-from nashrs import BTLComponent, MixtureBTLPreferenceOracle, TransformersScalarRewardOracle
+from nashrs import build_preference_oracle
 from nashrs.rejection import accept_gibbs_proposal, acceptance_probability
 
 
@@ -41,6 +42,8 @@ class AgentExecutor(AgentExecutorBase):
             "OpenAssistant/reward-model-deberta-v3-large-v2",
         )
         self.preference_revision = os.environ.get("NASHRS_PREFERENCE_REVISION")
+        components_json = os.environ.get("NASHRS_PREFERENCE_COMPONENTS_JSON")
+        self.preference_components = json.loads(components_json) if components_json else None
         self._reference_model = None
         self._preference = None
         self._execution_index = 0
@@ -60,14 +63,16 @@ class AgentExecutor(AgentExecutorBase):
             attn_implementation="sdpa",
         ).to("cuda")
         self._reference_model.eval()
-        scalar_reward = TransformersScalarRewardOracle(
-            self.preference_model_name,
-            revision=self.preference_revision,
-            device="cuda",
-            batch_size=8,
-            max_length=512,
-        )
-        self._preference = MixtureBTLPreferenceOracle([BTLComponent(scalar_reward)])
+        component_configs = self.preference_components or [
+            {
+                "kind": "pair",
+                "model": self.preference_model_name,
+                "revision": self.preference_revision,
+                "batch_size": 8,
+                "max_length": 512,
+            }
+        ]
+        self._preference = build_preference_oracle(component_configs, device="cuda")
 
     @staticmethod
     def _truncate_prompt(prompt, sampling_params, max_length, tokenizer):
