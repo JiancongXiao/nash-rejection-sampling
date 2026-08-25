@@ -1,0 +1,128 @@
+{"prompt":"Write a friendly email declining a meeting because of a scheduling conflict."}
+{"prompt":"Draft a concise agenda for a 30-minute project kickoff meeting."}
+{"prompt":"Rewrite this sentence to sound professional: We messed up the delivery and need more time."}
+{"prompt":"Give three tactful ways to ask a colleague for an overdue document."}
+{"prompt":"Write a short thank-you note to a mentor after completing an internship."}
+{"prompt":"Create a checklist for preparing a remote job interview."}
+{"prompt":"Summarize the key information a useful bug report should contain."}
+{"prompt":"Draft a polite message asking a landlord to repair a leaking faucet."}
+{"prompt":"Explain how to give constructive feedback without sounding hostile."}
+{"prompt":"Write a two-paragraph announcement for a community cleanup event."}
+{"prompt":"Suggest five clear subject lines for an email about a delayed project."}
+{"prompt":"Create a simple template for weekly team status updates."}
+{"prompt":"Explain photosynthesis to a ten-year-old using an analogy."}
+{"prompt":"Describe why the seasons are not caused by Earth's distance from the Sun."}
+{"prompt":"Compare mass and weight with one practical example."}
+{"prompt":"Explain how vaccines train the immune system in plain language."}
+{"prompt":"Describe the water cycle in no more than five sentences."}
+{"prompt":"Explain why antibiotics do not treat viral infections."}
+{"prompt":"Give an intuitive explanation of how a lever provides mechanical advantage."}
+{"prompt":"Describe how ocean tides are related to the Moon."}
+{"prompt":"Explain why metal feels colder than wood at the same temperature."}
+{"prompt":"Compare renewable and nonrenewable energy sources."}
+{"prompt":"Describe one benefit and one ecological risk of building a dam."}
+{"prompt":"Explain why biodiversity can make an ecosystem more resilient."}
+{"prompt":"Solve this problem step by step: A train travels 180 km in 2.5 hours. What is its average speed?"}
+{"prompt":"A jacket costs 80 dollars and is discounted by 25 percent. Calculate the final price."}
+{"prompt":"Explain why dividing by zero is undefined."}
+{"prompt":"Give a visual intuition for the Pythagorean theorem without drawing a picture."}
+{"prompt":"A recipe for four people uses 300 grams of flour. How much is needed for ten people?"}
+{"prompt":"Explain the difference between mean, median, and mode using one dataset."}
+{"prompt":"A fair coin is flipped three times. What is the probability of exactly two heads?"}
+{"prompt":"Show how to convert 3.5 kilometers into meters and centimeters."}
+{"prompt":"Explain compound interest with a small numerical example."}
+{"prompt":"A rectangle has perimeter 30 cm and length 9 cm. Find its width and area."}
+{"prompt":"Explain why the square root of 2 is irrational at a high level."}
+{"prompt":"Create a word problem whose answer requires solving 3x + 5 = 20."}
+{"prompt":"Summarize the main causes of the Industrial Revolution."}
+{"prompt":"Explain the historical significance of the printing press."}
+{"prompt":"Compare direct democracy and representative democracy."}
+{"prompt":"Describe two long-term effects of the Silk Road."}
+{"prompt":"Explain why primary sources and secondary sources serve different purposes."}
+{"prompt":"Give a balanced summary of the benefits and harms of rapid urbanization."}
+{"prompt":"Describe how maritime navigation changed global trade."}
+{"prompt":"Explain the concept of separation of powers."}
+{"prompt":"Compare a constitution with ordinary legislation."}
+{"prompt":"Describe why historical accounts of the same event may disagree."}
+{"prompt":"Explain one economic cause and one political cause of migration."}
+{"prompt":"Give three questions to ask when evaluating a historical claim."}
+{"prompt":"Plan a nutritious vegetarian lunch using commonly available ingredients."}
+{"prompt":"Create a seven-item packing list for a weekend hiking trip."}
+{"prompt":"Suggest a realistic morning routine for someone who has only 30 minutes."}
+{"prompt":"Give five strategies for reducing household food waste."}
+{"prompt":"Plan a low-cost indoor activity for a rainy family afternoon."}
+{"prompt":"Describe how to organize digital files for a small research project."}
+{"prompt":"Create a simple monthly budget with categories but no assumed income."}
+{"prompt":"Suggest three ways to make a presentation accessible to a wider audience."}
+{"prompt":"Give a step-by-step plan for learning a new language for 20 minutes per day."}
+{"prompt":"Explain how to prioritize tasks when everything appears urgent."}
+{"prompt":"Create a checklist for safely buying a used bicycle."}
+{"prompt":"Suggest a fair method for dividing chores among four roommates."}
+{"prompt":"Explain the difference between a virus, a worm, and a Trojan in cybersecurity."}
+{"prompt":"Give five practical habits for protecting online accounts."}
+{"prompt":"Describe how phishing messages create a false sense of urgency."}
+{"prompt":"Explain why software updates are important for security."}
+{"prompt":"Compare encryption at rest with encryption in transit."}
+{"prompt":"Describe what a password manager does and one risk it introduces."}
+{"prompt":"Give a safe response plan after accidentally clicking a suspicious link."}
+{"prompt":"Explain the principle of least privilege with an office example."}
+{"prompt":"Describe why public Wi-Fi can be risky."}
+{"prompt":"Explain what a backup strategy should protect against."}
+{"prompt":"Give three signs that a website may be fraudulent."}
+{"prompt":"Describe responsible disclosure of a software vulnerability."}
+{"prompt":"Write a Python function that returns the largest value in a nonempty list without using max."}
+{"prompt":"Explain the difference between a list and a set in Python."}
+{"prompt":"Find and explain the bug in this pseudocode: for i from 0 through length(array), print array[i]."}
+{"prompt":"Describe when a hash table is preferable to a sorted array."}
+{"prompt":"Explain recursion using the example of nested folders."}
+{"prompt":"Give pseudocode for checking whether a string is a palindrome."}
+{"prompt":"Compare unit tests with integration tests."}
+{"prompt":"Explain what an API is using a restaurant analogy."}
+{"prompt":"Describe why algorithmic complexity matters for large inputs."}
+{"prompt":"Write a SQL query conceptually describing how to count orders per customer."}
+{"prompt":"Explain the difference between authentication and authorization."}
+{"prompt":"Give three useful code-review questions."}
+{"prompt":"Explain why correlation between ice cream sales and sunburn does not imply causation."}
+{"prompt":"Describe a randomized controlled trial in plain language."}
+{"prompt":"Give an example of survivorship bias outside finance."}
+{"prompt":"Explain why a survey with many respondents can still be biased."}
+{"prompt":"Describe how a misleading graph can exaggerate a small difference."}
+{"prompt":"Compare absolute risk reduction with relative risk reduction."}
+{"prompt":"Explain regression to the mean with a sports example."}
+{"prompt":"Give three reasons an anecdote is weak evidence for a general claim."}
+{"prompt":"Describe what it means for a result to be practically significant."}
+{"prompt":"Explain why preregistration can improve research credibility."}
+{"prompt":"Give a simple example of selection bias."}
+{"prompt":"Describe how measurement error can affect a conclusion."}
+{"prompt":"Summarize the strongest argument for and against remote work."}
+{"prompt":"Present two perspectives on whether cities should restrict private cars downtown."}
+{"prompt":"Explain a tradeoff between economic growth and environmental protection."}
+{"prompt":"Give a balanced discussion of standardized testing in schools."}
+{"prompt":"Compare privacy and public safety as competing policy goals."}
+{"prompt":"Explain why reasonable people may disagree about allocating scarce medical resources."}
+{"prompt":"Describe one benefit and one risk of using facial recognition in public places."}
+{"prompt":"Present arguments on both sides of mandatory voting."}
+{"prompt":"Explain a tradeoff involved in content moderation."}
+{"prompt":"Compare open-source and proprietary software from a user's perspective."}
+{"prompt":"Discuss one benefit and one concern associated with personalized advertising."}
+{"prompt":"Explain why fairness can have multiple incompatible definitions."}
+{"prompt":"Write a 100-word mystery story set in an empty railway station."}
+{"prompt":"Create a metaphor for patience that does not involve plants or waiting in line."}
+{"prompt":"Describe a futuristic library in four vivid sentences."}
+{"prompt":"Write a dialogue in which two friends misunderstand the word light."}
+{"prompt":"Invent a holiday centered on repairing old objects."}
+{"prompt":"Write a short scene that conveys nervousness without using the word nervous."}
+{"prompt":"Create three names and slogans for a fictional reusable-bottle company."}
+{"prompt":"Retell the tortoise and the hare from the hare's perspective."}
+{"prompt":"Write a haiku about a noisy city morning."}
+{"prompt":"Invent a board-game mechanic based on cooperation rather than competition."}
+{"prompt":"Describe an ordinary kitchen as if it were an alien landscape."}
+{"prompt":"Write the opening paragraph of a story about a map that changes every night."}
+{"prompt":"A friend says they feel overwhelmed by work. Give a supportive response without diagnosing them."}
+{"prompt":"Explain how to disagree respectfully during a group discussion."}
+{"prompt":"Give advice for resolving a minor misunderstanding between roommates."}
+{"prompt":"Describe how to apologize sincerely after forgetting an important commitment."}
+{"prompt":"Suggest ways to include a quiet participant in a team conversation."}
+{"prompt":"Explain how to set a boundary while remaining courteous."}
+{"prompt":"Give a compassionate response to someone who failed an exam."}
+{"prompt":"Describe how to ask for clarification without embarrassing the speaker."}
