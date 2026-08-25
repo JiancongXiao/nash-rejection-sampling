@@ -1,0 +1,26 @@
+{
+  "name": "oasst-deberta-plus-skywork-qwen3",
+  "description": "Equal-weight mixture of independently trained pair-encoded and chat-encoded scalar reward models.",
+  "components": [
+    {
+      "name": "oasst_deberta",
+      "kind": "pair",
+      "model": "OpenAssistant/reward-model-deberta-v3-large-v2",
+      "revision": "c355404efa9ad2ad069f3a197cae0523c14244fc",
+      "weight": 1.0,
+      "temperature": 1.0,
+      "batch_size": 8,
+      "max_length": 512
+    },
+    {
+      "name": "skywork_qwen3_0_6b",
+      "kind": "chat",
+      "model": "Skywork/Skywork-Reward-V2-Qwen3-0.6B",
+      "revision": "d35d68a7856abd59c5a41d19690d340afbc6cbbe",
+      "weight": 1.0,
+      "temperature": 1.0,
+      "batch_size": 8,
+      "max_length": 1024
+    }
+  ]
+}
