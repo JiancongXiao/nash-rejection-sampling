@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from .interfaces import ScalarRewardOracle
 
@@ -120,3 +120,121 @@ class TransformersScalarRewardOracle:
                     )
                 scores.extend(float(value) for value in logits[:, 0].float().cpu())
         return scores
+
+
+class TransformersChatRewardOracle:
+    """Sequence-classification reward model using its native chat template.
+
+    Models such as Skywork Reward V2 are trained on rendered conversations,
+    rather than tokenizer ``text``/``text_pair`` inputs. Keeping this adapter
+    separate prevents accidentally evaluating them with the DeBERTa encoding.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        revision: str | None = None,
+        device: str = "cuda",
+        batch_size: int = 8,
+        max_length: int = 1024,
+        system_prompt: str | None = None,
+    ) -> None:
+        if batch_size <= 0 or max_length <= 0:
+            raise ValueError("batch_size and max_length must be positive")
+        import torch
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        self.torch = torch
+        self.device = torch.device(device)
+        self.batch_size = batch_size
+        self.max_length = max_length
+        self.system_prompt = system_prompt
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
+        if self.tokenizer.chat_template is None:
+            raise ValueError(f"reward model has no chat template: {model_name}")
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            revision=revision,
+        )
+        self.model.to(self.device)
+        self.model.eval()
+
+    def _render(self, prompt: str, response: str) -> str:
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.extend(
+            [
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": response},
+            ]
+        )
+        return self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+
+    def score(
+        self, prompts: Sequence[str], responses: Sequence[str]
+    ) -> list[float]:
+        if len(prompts) != len(responses):
+            raise ValueError("prompts and responses must have equal length")
+        rendered = [
+            self._render(prompt, response)
+            for prompt, response in zip(prompts, responses)
+        ]
+        scores: list[float] = []
+        with self.torch.inference_mode():
+            for start in range(0, len(rendered), self.batch_size):
+                encoded = self.tokenizer(
+                    rendered[start : start + self.batch_size],
+                    padding=True,
+                    truncation=True,
+                    max_length=self.max_length,
+                    return_tensors="pt",
+                )
+                encoded = {key: value.to(self.device) for key, value in encoded.items()}
+                logits = self.model(**encoded).logits
+                if logits.ndim != 2 or logits.shape[1] != 1:
+                    raise ValueError(
+                        "expected a scalar sequence-classification reward model"
+                    )
+                scores.extend(float(value) for value in logits[:, 0].float().cpu())
+        return scores
+
+
+def build_preference_oracle(
+    component_configs: Sequence[Mapping[str, Any]],
+    *,
+    device: str = "cuda",
+) -> MixtureBTLPreferenceOracle:
+    """Build a pinned mixture from JSON-compatible component definitions."""
+
+    components: list[BTLComponent] = []
+    for config in component_configs:
+        kind = str(config.get("kind", "pair"))
+        common = {
+            "model_name": str(config["model"]),
+            "revision": config.get("revision"),
+            "device": device,
+            "batch_size": int(config.get("batch_size", 8)),
+            "max_length": int(config.get("max_length", 512)),
+        }
+        if kind == "pair":
+            oracle: ScalarRewardOracle = TransformersScalarRewardOracle(**common)
+        elif kind == "chat":
+            oracle = TransformersChatRewardOracle(
+                **common,
+                system_prompt=config.get("system_prompt"),
+            )
+        else:
+            raise ValueError(f"unknown preference component kind: {kind}")
+        components.append(
+            BTLComponent(
+                oracle=oracle,
+                weight=float(config.get("weight", 1.0)),
+                temperature=float(config.get("temperature", 1.0)),
+            )
+        )
+    return MixtureBTLPreferenceOracle(components)
