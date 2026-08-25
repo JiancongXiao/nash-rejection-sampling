@@ -43,6 +43,10 @@ SAVE_STEPS="${NASHRS_SAVE_STEPS:--1}"
 MAX_CKPT_NUM="${NASHRS_MAX_CKPT_NUM:-4}"
 RUN_FIXED_EVAL="${NASHRS_RUN_FIXED_EVAL:-0}"
 EVAL_PROMPT_DATA="${NASHRS_EVAL_PROMPT_DATA:-$PBS_O_WORKDIR/examples/data/ppo_eval_prompts_16.jsonl}"
+RUN_INDEPENDENT_EVAL="${NASHRS_RUN_INDEPENDENT_EVAL:-0}"
+TEST_PROMPT_DATA="${NASHRS_TEST_PROMPT_DATA:-$PBS_O_WORKDIR/examples/data/ppo_test_prompts_128.jsonl}"
+METHOD_SEED="${NASHRS_SEED:-29}"
+TRAIN_SEED="${NASHRS_TRAIN_SEED:-$METHOD_SEED}"
 RUN_ROOT="$SCRATCH_ROOT/results/$RESULTS_NAMESPACE/${PBS_JOBID}"
 JOB_NUMBER="${PBS_JOBID%%.*}"
 RAY_ROOT="/tmp/nashrs-ray-$JOB_NUMBER"
@@ -102,6 +106,10 @@ echo "Policy revision: $MODEL_REVISION"
 echo "Local policy snapshot: $MODEL"
 echo "Run root: $RUN_ROOT"
 echo "Ray root: $RAY_ROOT"
+echo "Method seed: $METHOD_SEED"
+echo "OpenRLHF training seed: $TRAIN_SEED"
+echo "Samples / episodes / rollout batch: $MAX_SAMPLES / $NUM_EPISODES / $ROLLOUT_BATCH_SIZE"
+echo "Prompt / generation length: $PROMPT_MAX_LEN / $GENERATE_MAX_LEN"
 echo "PBS CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<unset>}"
 
 PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
@@ -152,7 +160,7 @@ singularity exec --nv "$IMAGE" env \
   NASHRS_B2="${NASHRS_B2:-2}" \
   NASHRS_PROPOSAL_BATCH_SIZE="${NASHRS_PROPOSAL_BATCH_SIZE:-4}" \
   NASHRS_MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}" \
-  NASHRS_SEED="${NASHRS_SEED:-29}" \
+  NASHRS_SEED="$METHOD_SEED" \
   NASHRS_REFERENCE_MODEL="$MODEL" \
   NASHRS_PREFERENCE_MODEL="$PM_MODEL" \
   NASHRS_PREFERENCE_REVISION="$PM_REVISION" \
@@ -180,6 +188,7 @@ singularity exec --nv "$IMAGE" env \
     --rollout_batch_size "$ROLLOUT_BATCH_SIZE" \
     --vllm_generate_batch_size "$VLLM_GENERATE_BATCH_SIZE" \
     --n_samples_per_prompt 1 \
+    --seed "$TRAIN_SEED" \
     --num_episodes "$NUM_EPISODES" \
     --max_epochs 1 \
     --max_samples "$MAX_SAMPLES" \
@@ -238,8 +247,34 @@ if [[ "$RUN_FIXED_EVAL" == "1" ]]; then
       --final-model "$SAVE_PATH" \
       --preference-model "$PM_MODEL" \
       --preference-revision "$PM_REVISION" \
+      --run-seed "$TRAIN_SEED" \
       --max-new-tokens "$GENERATE_MAX_LEN" \
       --output-dir "$RUN_ROOT/fixed_eval"
+fi
+
+if [[ "$RUN_INDEPENDENT_EVAL" == "1" ]]; then
+  singularity exec --nv "$IMAGE" env \
+    CUDA_VISIBLE_DEVICES="$VLLM_GPU_INDEX" \
+    TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
+    HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+    HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_DISABLE_XET=1 \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    PYTHONPATH="$PBS_O_WORKDIR/src" \
+    "$VENV/bin/python" examples/evaluate_ppo_checkpoints.py \
+      --prompts "$TEST_PROMPT_DATA" \
+      --base-model "$MODEL" \
+      --checkpoint-root "$CKPT_PATH" \
+      --final-model "$SAVE_PATH" \
+      --preference-model "$PM_MODEL" \
+      --preference-revision "$PM_REVISION" \
+      --run-seed "$TRAIN_SEED" \
+      --max-new-tokens 512 \
+      --batch-size 8 \
+      --steps 24 \
+      --bootstrap-samples 2000 \
+      --output-dir "$RUN_ROOT/independent_test_128"
 fi
 
 echo "Nash-RS OpenRLHF $RUN_LABEL completed successfully."
