@@ -41,6 +41,12 @@ The exact policy-space convergence theorem does not automatically apply to
 this PPO implementation. Finite `B2` adds variance; finite `B1` generally adds
 bias to the Gibbs target.
 
+The primary general-preference configuration is
+`configs/general_preference_primary.json`. It combines a pair-encoded
+OpenAssistant DeBERTa reward model with a chat-template-encoded Skywork Reward
+V2 Qwen3-0.6B model. Run the lightweight oracle validation described in
+`cluster/hopper/README.md` before starting PPO with this mixture.
+
 See `docs/IMPLEMENTATION_PLAN.md` for the staged OpenRLHF integration plan and
 the fairness contract shared by all methods.
 
