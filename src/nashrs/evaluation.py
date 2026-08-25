@@ -13,6 +13,7 @@ class PairwiseEvaluation:
     methods: Sequence[str]
     matrix: Sequence[Sequence[float]]
     preference_model_calls: int
+    per_prompt: Sequence[Sequence[Sequence[float]]] = ()
 
     def average_win_rate(self, method: str) -> float:
         index = self.methods.index(method)
@@ -49,6 +50,10 @@ def evaluate_pairwise(
             raise ValueError(f"{method} has {len(values)} responses for {len(prompts)} prompts")
     size = len(methods)
     matrix = [[0.5 for _ in methods] for _ in methods]
+    per_prompt = [
+        [[0.5 for _ in prompts] for _ in methods]
+        for _ in methods
+    ]
     calls = 0
     for i in range(size):
         for j in range(i + 1, size):
@@ -63,6 +68,7 @@ def evaluate_pairwise(
             win_rate = sum(values) / len(values) if values else 0.5
             matrix[i][j] = win_rate
             matrix[j][i] = 1.0 - win_rate
+            per_prompt[i][j] = values
+            per_prompt[j][i] = [1.0 - value for value in values]
             calls += len(values)
-    return PairwiseEvaluation(methods, matrix, calls)
-
+    return PairwiseEvaluation(methods, matrix, calls, per_prompt)
