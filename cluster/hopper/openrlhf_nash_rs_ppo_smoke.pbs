@@ -164,6 +164,7 @@ singularity exec --nv "$IMAGE" env \
   NASHRS_REFERENCE_MODEL="$MODEL" \
   NASHRS_PREFERENCE_MODEL="$PM_MODEL" \
   NASHRS_PREFERENCE_REVISION="$PM_REVISION" \
+  NASHRS_PREFERENCE_COMPONENTS_JSON="${NASHRS_PREFERENCE_COMPONENTS_JSON:-}" \
   "$VENV/bin/python" "$PBS_O_WORKDIR/examples/openrlhf/train_ppo_ray_pbs.py" \
     --ref_num_nodes 1 \
     --ref_num_gpus_per_node 1 \
