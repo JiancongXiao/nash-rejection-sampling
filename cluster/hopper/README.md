@@ -193,3 +193,21 @@ This evaluates only the base model and steps 24 and 32 on 128 new cross-domain
 prompts with a 512-token response budget. It writes per-prompt scalar rewards
 and pairwise probabilities, plus 2,000-sample bootstrap 95% confidence
 intervals, under `independent_test_128/` in the original training run.
+
+## Three-seed 24-step replication
+
+The replication configuration uses 120 unique prompts, batch size 5, exactly
+24 optimizer steps, and a 512-token training response budget. Submit the three
+pre-registered seeds separately:
+
+```bash
+qsub -v NASHRS_EXPERIMENT_SEED=47 cluster/hopper/openrlhf_nash_rs_seed_24step.pbs
+qsub -v NASHRS_EXPERIMENT_SEED=101 cluster/hopper/openrlhf_nash_rs_seed_24step.pbs
+qsub -v NASHRS_EXPERIMENT_SEED=211 cluster/hopper/openrlhf_nash_rs_seed_24step.pbs
+```
+
+Both the OpenRLHF seed and Nash-RS rejection-sampling seed are set to the
+specified value. Each job saves step 24 and automatically evaluates it against
+the common base model on the independent 128-prompt test set with 2,000-sample
+bootstrap intervals. Results are isolated by PBS job ID under
+`openrlhf-nashrs-3seed-24step/`.
