@@ -137,6 +137,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, nargs="*")
     parser.add_argument("--bootstrap-samples", type=int, default=2000)
     parser.add_argument("--bootstrap-seed", type=int, default=20260825)
+    parser.add_argument("--run-seed", type=int)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -293,6 +294,7 @@ def main() -> None:
                 + "\n"
             )
     summary = {
+        "run_seed": args.run_seed,
         "prompts": len(prompts),
         "max_new_tokens": args.max_new_tokens,
         "methods": methods,
