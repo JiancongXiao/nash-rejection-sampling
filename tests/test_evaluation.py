@@ -19,6 +19,9 @@ class EvaluationTest(unittest.TestCase):
             FirstWinsOracle(),
         )
         self.assertEqual(result.preference_model_calls, 2)
+        self.assertEqual(result.per_prompt[0][1], [0.8, 0.8])
+        for value in result.per_prompt[1][0]:
+            self.assertAlmostEqual(value, 0.2)
         self.assertAlmostEqual(result.average_win_rate("nash-rs"), 0.8)
         self.assertAlmostEqual(result.worst_case_win_rate("nash-rs"), 0.8)
         self.assertAlmostEqual(result.empirical_exploitability("nash-rs"), 0.0)
@@ -27,4 +30,3 @@ class EvaluationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
