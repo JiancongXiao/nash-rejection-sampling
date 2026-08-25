@@ -1,0 +1,80 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_eval
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=00:15:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+module load singularity
+
+if [[ -z "${NASHRS_SOURCE_JOB_ID:-}" ]]; then
+  echo "Submit with -v NASHRS_SOURCE_JOB_ID=TRAIN_JOB_ID" >&2
+  exit 2
+fi
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+SCRATCH_ROOT="/scratch/jiancongxiao"
+VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
+MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
+PM_MODEL="OpenAssistant/reward-model-deberta-v3-large-v2"
+PM_REVISION="c355404efa9ad2ad069f3a197cae0523c14244fc"
+SOURCE_ROOT="$SCRATCH_ROOT/results/openrlhf-nashrs-pilot-32step/$NASHRS_SOURCE_JOB_ID"
+CHECKPOINT_ROOT="$SOURCE_ROOT/deepspeed"
+FINAL_MODEL="$SOURCE_ROOT/actor"
+OUTPUT_DIR="$SOURCE_ROOT/fixed_eval_base_tokenizer"
+CUDA_DRIVER_LIB="$SCRATCH_ROOT/cuda-driver-lib"
+
+shopt -s nullglob
+MODEL_SNAPSHOTS=("$MODEL_CACHE"/snapshots/*)
+BASE_MODEL=""
+for candidate in "${MODEL_SNAPSHOTS[@]}"; do
+  if [[ -f "$candidate/config.json" ]]; then
+    BASE_MODEL="$candidate"
+    break
+  fi
+done
+if [[ -z "$BASE_MODEL" || ! -d "$CHECKPOINT_ROOT" ]]; then
+  echo "Missing base model or source checkpoints under $SOURCE_ROOT" >&2
+  exit 3
+fi
+
+PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
+if [[ "$PBS_GPU_ASSIGNMENT" == GPU-* ]]; then
+  GPU_INDEX="$(nvidia-smi --id="$PBS_GPU_ASSIGNMENT" --query-gpu=index --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')"
+elif [[ "$PBS_GPU_ASSIGNMENT" =~ ^[0-9]+$ ]]; then
+  GPU_INDEX="$PBS_GPU_ASSIGNMENT"
+else
+  echo "Unsupported PBS GPU assignment: $PBS_GPU_ASSIGNMENT" >&2
+  exit 4
+fi
+
+mkdir -p "$CUDA_DRIVER_LIB" "$OUTPUT_DIR"
+ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so"
+ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so.1"
+
+singularity exec --nv "$IMAGE" env \
+  CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
+  TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
+  HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+  HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+  HF_HUB_DISABLE_XET=1 \
+  HF_HUB_OFFLINE=1 \
+  TRANSFORMERS_OFFLINE=1 \
+  PYTHONPATH="$PBS_O_WORKDIR/src" \
+  "$VENV/bin/python" examples/evaluate_ppo_checkpoints.py \
+    --prompts examples/data/ppo_eval_prompts_16.jsonl \
+    --base-model "$BASE_MODEL" \
+    --checkpoint-root "$CHECKPOINT_ROOT" \
+    --final-model "$FINAL_MODEL" \
+    --preference-model "$PM_MODEL" \
+    --preference-revision "$PM_REVISION" \
+    --max-new-tokens 256 \
+    --output-dir "$OUTPUT_DIR"
+
+echo "Fixed checkpoint evaluation completed successfully: $OUTPUT_DIR"
