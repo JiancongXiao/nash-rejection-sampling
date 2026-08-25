@@ -54,6 +54,7 @@ def load_prompts(path: Path) -> list[str]:
 
 def generate_responses(
     model_path: Path,
+    tokenizer_path: Path,
     prompts: list[str],
     max_new_tokens: int,
     batch_size: int,
@@ -61,7 +62,10 @@ def generate_responses(
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    # Every checkpoint comes from the same base model. Reusing the pinned base
+    # tokenizer prevents checkpoint-local tokenizer serialization differences
+    # from confounding the comparison.
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = "left"
@@ -143,7 +147,11 @@ def main() -> None:
     with response_path.open("w") as handle:
         for name, path in models:
             values, lengths, truncated = generate_responses(
-                path, prompts, args.max_new_tokens, args.batch_size
+                path,
+                args.base_model,
+                prompts,
+                args.max_new_tokens,
+                args.batch_size,
             )
             responses[name] = values
             generation_stats[name] = {
