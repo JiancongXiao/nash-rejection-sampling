@@ -57,6 +57,27 @@ class CheckpointEvaluationTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first["average_win_rate"]["a"], [0.75, 0.75])
 
+    def test_pairwise_bootstrap_without_scalar_proxy(self):
+        methods = ["base", "step_24"]
+        per_prompt = [
+            [[0.5, 0.5], [0.4, 0.6]],
+            [[0.6, 0.4], [0.5, 0.5]],
+        ]
+        result = MODULE.bootstrap_intervals(methods, None, per_prompt, 20, 3)
+        self.assertNotIn("mean_scalar_reward", result)
+        self.assertIn("average_win_rate", result)
+
+    def test_component_reward_intervals(self):
+        scores = {
+            "helpfulness": {
+                "base": [1.0, 2.0],
+                "step_24": [2.0, 3.0],
+            }
+        }
+        result = MODULE.bootstrap_component_intervals(scores, 20, 11)
+        self.assertIn("helpfulness", result)
+        self.assertIn("step_24", result["helpfulness"])
+
 
 if __name__ == "__main__":
     unittest.main()
