@@ -1,0 +1,56 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_ray
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=00:10:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+module load singularity
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+SCRATCH_ROOT="/scratch/jiancongxiao"
+VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+JOB_NUMBER="${PBS_JOBID%%.*}"
+RAY_ROOT="/tmp/nrs-$JOB_NUMBER"
+ARCHIVE="$SCRATCH_ROOT/results/ray-init-smoke/${PBS_JOBID}/logs"
+CUDA_DRIVER_LIB="$SCRATCH_ROOT/cuda-driver-lib"
+
+mkdir -p "$ARCHIVE" "$CUDA_DRIVER_LIB"
+ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so"
+ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so.1"
+
+PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
+if [[ "$PBS_GPU_ASSIGNMENT" == GPU-* ]]; then
+  GPU_INDEX="$(nvidia-smi --id="$PBS_GPU_ASSIGNMENT" --query-gpu=index --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')"
+elif [[ "$PBS_GPU_ASSIGNMENT" =~ ^[0-9]+$ ]]; then
+  GPU_INDEX="$PBS_GPU_ASSIGNMENT"
+else
+  echo "Unsupported PBS GPU assignment: $PBS_GPU_ASSIGNMENT" >&2
+  exit 2
+fi
+
+archive_logs() {
+  session="$(readlink -f "$RAY_ROOT/session_latest" 2>/dev/null || true)"
+  if [[ -n "$session" && -d "$session/logs" ]]; then
+    cp -a "$session/logs/." "$ARCHIVE/" || true
+  fi
+}
+trap archive_logs EXIT
+
+singularity exec --nv "$IMAGE" env \
+  CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
+  NASHRS_PBS_GPU_ASSIGNMENT="$PBS_GPU_ASSIGNMENT" \
+  TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
+  NASHRS_RAY_TMPDIR="$RAY_ROOT" \
+  NASHRS_RAY_STARTUP_TIMEOUT=180 \
+  NASHRS_RAY_SMOKE_ONLY=1 \
+  PYTHONPATH="$PBS_O_WORKDIR/src" \
+  TMPDIR="$SCRATCH_ROOT/tmp" \
+  "$VENV/bin/python" examples/openrlhf/train_ppo_ray_pbs.py
+
+echo "Ray init smoke test completed: $ARCHIVE"
