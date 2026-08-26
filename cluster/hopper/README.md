@@ -262,3 +262,15 @@ Results are written under
 Preference-model accounting counts a comparison once per reward component, so
 the two-component oracle reports twice the component evaluations of the
 single-BTL setup for the same sampled pairs.
+
+If local Ray startup fails or stalls before printing cluster resources, run
+the bounded preflight first:
+
+```bash
+qsub cluster/hopper/ray_init_smoke.pbs
+```
+
+It disables the dashboard, constrains Ray to the PBS allocation, uses a 4 GiB
+object store, fixes the single-node address to loopback, and fails within three
+minutes rather than consuming the full training walltime. Logs are persisted
+under `/scratch/jiancongxiao/results/ray-init-smoke/JOB_ID/logs/`.
