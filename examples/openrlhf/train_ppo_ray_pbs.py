@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import runpy
+import signal
 import subprocess
 
 
@@ -69,16 +70,56 @@ def main() -> None:
     ray_root.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "true")
     os.environ.setdefault("NCCL_DEBUG", "WARN")
-    ray.init(
-        num_gpus=gpu_count,
-        include_dashboard=False,
-        _temp_dir=str(ray_root),
+    startup_timeout = int(os.environ.get("NASHRS_RAY_STARTUP_TIMEOUT", "180"))
+
+    def fail_startup(signum, frame):
+        del signum, frame
+        raise TimeoutError(
+            f"ray.init did not return within {startup_timeout} seconds"
+        )
+
+    signal.signal(signal.SIGALRM, fail_startup)
+    signal.alarm(startup_timeout)
+    print(
+        "Starting local Ray with dashboard disabled, 12 CPUs, 1 GPU, "
+        "and a 4 GiB object store",
+        flush=True,
     )
+    try:
+        ray.init(
+            address="local",
+            num_cpus=min(12, os.cpu_count() or 1),
+            num_gpus=gpu_count,
+            include_dashboard=False,
+            object_store_memory=4 * 1024**3,
+            _node_ip_address="127.0.0.1",
+            _temp_dir=str(ray_root),
+        )
+    finally:
+        signal.alarm(0)
+    print("ray.init returned successfully", flush=True)
     resources = ray.cluster_resources()
     print(f"Ray cluster resources: {resources}", flush=True)
     if resources.get("GPU", 0) < 1:
         ray.shutdown()
         raise SystemExit("Ray did not register the PBS GPU")
+
+    if os.environ.get("NASHRS_RAY_SMOKE_ONLY") == "1":
+        @ray.remote(num_cpus=1, num_gpus=1)
+        def smoke_worker():
+            import torch
+
+            return {
+                "pid": os.getpid(),
+                "cuda_available": torch.cuda.is_available(),
+                "visible_gpus": torch.cuda.device_count(),
+            }
+
+        result = ray.get(smoke_worker.remote(), timeout=60)
+        print(f"Ray smoke worker: {result}", flush=True)
+        ray.shutdown()
+        print("Ray initialization smoke test completed successfully", flush=True)
+        return
 
     # OpenRLHF reuses this initialized Ray instance and parses its normal CLI.
     runpy.run_module("openrlhf.cli.train_ppo_ray", run_name="__main__")
