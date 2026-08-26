@@ -14,6 +14,7 @@ from nashrs import (
     BTLComponent,
     MixtureBTLPreferenceOracle,
     TransformersScalarRewardOracle,
+    build_preference_oracle,
     evaluate_pairwise,
 )
 
@@ -130,7 +131,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-model", type=Path, required=True)
     parser.add_argument("--checkpoint-root", type=Path, required=True)
     parser.add_argument("--final-model", type=Path)
-    parser.add_argument("--preference-model", required=True)
+    oracle_group = parser.add_mutually_exclusive_group(required=True)
+    oracle_group.add_argument("--preference-model")
+    oracle_group.add_argument("--preference-config", type=Path)
     parser.add_argument("--preference-revision")
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -153,23 +156,25 @@ def percentile(values: list[float], probability: float) -> float:
 
 def bootstrap_intervals(
     methods: list[str],
-    scalar_scores: dict[str, list[float]],
+    scalar_scores: dict[str, list[float]] | None,
     per_prompt: list[list[list[float]]],
     samples: int,
     seed: int,
 ) -> dict[str, dict[str, list[float]]]:
     if samples <= 0:
         raise ValueError("bootstrap_samples must be positive")
-    prompt_count = len(next(iter(scalar_scores.values())))
+    prompt_count = len(per_prompt[0][0])
     rng = random.Random(seed)
+    metric_names = [
+        "average_win_rate",
+        "worst_case_win_rate",
+        "empirical_exploitability",
+    ]
+    if scalar_scores is not None:
+        metric_names.insert(0, "mean_scalar_reward")
     draws = {
         metric: {method: [] for method in methods}
-        for metric in (
-            "mean_scalar_reward",
-            "average_win_rate",
-            "worst_case_win_rate",
-            "empirical_exploitability",
-        )
+        for metric in metric_names
     }
     for _ in range(samples):
         indices = [rng.randrange(prompt_count) for _ in range(prompt_count)]
@@ -181,9 +186,10 @@ def bootstrap_intervals(
         for i, method in enumerate(methods):
             opponents = [matrix[i][j] for j in range(len(methods)) if j != i]
             opponent_wins = [matrix[j][i] for j in range(len(methods)) if j != i]
-            draws["mean_scalar_reward"][method].append(
-                sum(scalar_scores[method][k] for k in indices) / prompt_count
-            )
+            if scalar_scores is not None:
+                draws["mean_scalar_reward"][method].append(
+                    sum(scalar_scores[method][k] for k in indices) / prompt_count
+                )
             draws["average_win_rate"][method].append(sum(opponents) / len(opponents))
             draws["worst_case_win_rate"][method].append(min(opponents))
             draws["empirical_exploitability"][method].append(
@@ -195,6 +201,36 @@ def bootstrap_intervals(
             for method, values in method_values.items()
         }
         for metric, method_values in draws.items()
+    }
+
+
+def bootstrap_component_intervals(
+    component_scores: dict[str, dict[str, list[float]]],
+    samples: int,
+    seed: int,
+) -> dict[str, dict[str, list[float]]]:
+    if not component_scores:
+        return {}
+    first_component = next(iter(component_scores.values()))
+    prompt_count = len(next(iter(first_component.values())))
+    rng = random.Random(seed)
+    draws = {
+        component: {method: [] for method in methods}
+        for component, methods in component_scores.items()
+    }
+    for _ in range(samples):
+        indices = [rng.randrange(prompt_count) for _ in range(prompt_count)]
+        for component, methods in component_scores.items():
+            for method, values in methods.items():
+                draws[component][method].append(
+                    sum(values[index] for index in indices) / prompt_count
+                )
+    return {
+        component: {
+            method: [percentile(values, 0.025), percentile(values, 0.975)]
+            for method, values in methods.items()
+        }
+        for component, methods in draws.items()
     }
 
 
@@ -249,18 +285,45 @@ def main() -> None:
                     + "\n"
                 )
 
-    scalar_reward = TransformersScalarRewardOracle(
-        args.preference_model,
-        revision=args.preference_revision,
-        device="cuda",
-        batch_size=8,
-        max_length=512,
-    )
-    scalar_scores = {
-        name: list(scalar_reward.score(prompts, values))
-        for name, values in responses.items()
+    if args.preference_config:
+        preference_spec = json.loads(args.preference_config.read_text())
+        component_configs = preference_spec["components"]
+        preference = build_preference_oracle(component_configs, device="cuda")
+        component_names = [
+            str(config.get("name", config["model"])) for config in component_configs
+        ]
+        scalar_scores = None
+    else:
+        component_configs = [{
+            "name": "scalar_reward",
+            "kind": "pair",
+            "model": args.preference_model,
+            "revision": args.preference_revision,
+            "weight": 1.0,
+            "temperature": 1.0,
+            "batch_size": 8,
+            "max_length": 512,
+        }]
+        scalar_reward = TransformersScalarRewardOracle(
+            args.preference_model,
+            revision=args.preference_revision,
+            device="cuda",
+            batch_size=8,
+            max_length=512,
+        )
+        preference = MixtureBTLPreferenceOracle([BTLComponent(scalar_reward)])
+        component_names = ["scalar_reward"]
+        scalar_scores = {
+            name: list(scalar_reward.score(prompts, values))
+            for name, values in responses.items()
+        }
+    component_scores = {
+        component_name: {
+            method: list(component.oracle.score(prompts, values))
+            for method, values in responses.items()
+        }
+        for component_name, component in zip(component_names, preference.components)
     }
-    preference = MixtureBTLPreferenceOracle([BTLComponent(scalar_reward)])
     pairwise = evaluate_pairwise(prompts, responses, preference)
     methods = list(responses)
     intervals = bootstrap_intervals(
@@ -270,6 +333,11 @@ def main() -> None:
         args.bootstrap_samples,
         args.bootstrap_seed,
     )
+    component_intervals = bootstrap_component_intervals(
+        component_scores,
+        args.bootstrap_samples,
+        args.bootstrap_seed + 1,
+    )
     detail_path = args.output_dir / "per_prompt_metrics.jsonl"
     with detail_path.open("w") as handle:
         for index, prompt in enumerate(prompts):
@@ -278,8 +346,12 @@ def main() -> None:
                     {
                         "prompt_index": index,
                         "prompt": prompt,
-                        "scalar_reward": {
-                            method: scalar_scores[method][index] for method in methods
+                        "component_reward": {
+                            component: {
+                                method: scores[method][index]
+                                for method in methods
+                            }
+                            for component, scores in component_scores.items()
                         },
                         "pairwise_probability": {
                             left: {
@@ -299,8 +371,12 @@ def main() -> None:
         "max_new_tokens": args.max_new_tokens,
         "methods": methods,
         "generation": generation_stats,
-        "mean_scalar_reward": {
-            name: sum(values) / len(values) for name, values in scalar_scores.items()
+        "preference_components": component_configs,
+        "mean_component_reward": {
+            component: {
+                name: sum(values) / len(values) for name, values in scores.items()
+            }
+            for component, scores in component_scores.items()
         },
         "pairwise_matrix": pairwise.matrix,
         "average_win_rate": {
@@ -314,9 +390,16 @@ def main() -> None:
         },
         "bootstrap_samples": args.bootstrap_samples,
         "confidence_intervals_95": intervals,
-        "preference_model_calls": pairwise.preference_model_calls,
+        "component_reward_confidence_intervals_95": component_intervals,
+        "pairwise_comparisons": pairwise.preference_model_calls,
+        "preference_model_calls": pairwise.preference_model_calls
+        * len(preference.components),
         "elapsed_seconds": time.perf_counter() - started,
     }
+    if scalar_scores is not None:
+        summary["mean_scalar_reward"] = {
+            name: sum(values) / len(values) for name, values in scalar_scores.items()
+        }
     output = args.output_dir / "summary.json"
     output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps({"output": str(output), **summary}, ensure_ascii=False, indent=2))
