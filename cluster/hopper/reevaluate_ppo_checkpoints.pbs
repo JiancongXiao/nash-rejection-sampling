@@ -24,7 +24,8 @@ HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
 MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
 PM_MODEL="OpenAssistant/reward-model-deberta-v3-large-v2"
 PM_REVISION="c355404efa9ad2ad069f3a197cae0523c14244fc"
-SOURCE_ROOT="$SCRATCH_ROOT/results/openrlhf-nashrs-pilot-32step/$NASHRS_SOURCE_JOB_ID"
+SOURCE_NAMESPACE="${NASHRS_SOURCE_NAMESPACE:-openrlhf-nashrs-pilot-32step}"
+SOURCE_ROOT="$SCRATCH_ROOT/results/$SOURCE_NAMESPACE/$NASHRS_SOURCE_JOB_ID"
 CHECKPOINT_ROOT="$SOURCE_ROOT/deepspeed"
 FINAL_MODEL="$SOURCE_ROOT/actor"
 CUDA_DRIVER_LIB="$SCRATCH_ROOT/cuda-driver-lib"
@@ -72,6 +73,14 @@ if [[ -n "$EVAL_STEPS" ]]; then
   done
 fi
 
+PREFERENCE_ARGS=(
+  --preference-model "$PM_MODEL"
+  --preference-revision "$PM_REVISION"
+)
+if [[ -n "${NASHRS_PREFERENCE_CONFIG:-}" ]]; then
+  PREFERENCE_ARGS=(--preference-config "$NASHRS_PREFERENCE_CONFIG")
+fi
+
 singularity exec --nv "$IMAGE" env \
   CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
   TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
@@ -86,8 +95,7 @@ singularity exec --nv "$IMAGE" env \
     --base-model "$BASE_MODEL" \
     --checkpoint-root "$CHECKPOINT_ROOT" \
     --final-model "$FINAL_MODEL" \
-    --preference-model "$PM_MODEL" \
-    --preference-revision "$PM_REVISION" \
+    "${PREFERENCE_ARGS[@]}" \
     --max-new-tokens "$MAX_NEW_TOKENS" \
     --batch-size "$BATCH_SIZE" \
     --bootstrap-samples "$BOOTSTRAP_SAMPLES" \
