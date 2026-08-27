@@ -1,0 +1,66 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_uftest
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+SOURCE_NAMESPACE="openrlhf-nashrs-ultrafeedback-2k"
+SOURCE_ROOT="/scratch/jiancongxiao/results/$SOURCE_NAMESPACE/${NASHRS_SOURCE_JOB_ID:?missing source job id}"
+SELECTION_SUMMARY="$SOURCE_ROOT/selection_curve_256/summary.json"
+SELECTION_RECORD="$SOURCE_ROOT/selected_checkpoint.json"
+
+if [[ ! -f "$SELECTION_SUMMARY" ]]; then
+  echo "Missing selection summary: $SELECTION_SUMMARY" >&2
+  exit 2
+fi
+
+BEST_STEP="$(python3 - "$SELECTION_SUMMARY" "$SELECTION_RECORD" <<'PY'
+import json, re, sys
+
+summary_path, output_path = sys.argv[1:]
+with open(summary_path) as handle:
+    summary = json.load(handle)
+candidates = [name for name in summary["methods"] if re.fullmatch(r"step_\d+", name)]
+if not candidates:
+    raise SystemExit("selection summary has no checkpoints")
+best = max(
+    candidates,
+    key=lambda name: (
+        summary["worst_case_win_rate"][name],
+        summary["average_win_rate"][name],
+        -int(name.split("_", 1)[1]),
+    ),
+)
+record = {
+    "selection_metric": "worst_case_win_rate",
+    "selected_method": best,
+    "selected_step": int(best.split("_", 1)[1]),
+    "worst_case_win_rate": summary["worst_case_win_rate"][best],
+    "average_win_rate": summary["average_win_rate"][best],
+    "selection_prompts": summary["prompts"],
+}
+with open(output_path, "w") as handle:
+    json.dump(record, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+print(record["selected_step"])
+PY
+)"
+
+export NASHRS_SOURCE_NAMESPACE="$SOURCE_NAMESPACE"
+export NASHRS_PREFERENCE_CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+export NASHRS_EVAL_PROMPT_DATA="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/test_1024.jsonl"
+export NASHRS_EVAL_OUTPUT_SUBDIR="independent_test_1024_selected_step_${BEST_STEP}"
+export NASHRS_EVAL_MAX_NEW_TOKENS=512
+export NASHRS_EVAL_BATCH_SIZE=8
+export NASHRS_EVAL_GENERATION_BACKEND="vllm"
+export NASHRS_EVAL_STEPS="$BEST_STEP"
+export NASHRS_BOOTSTRAP_SAMPLES=10000
+
+echo "Selected checkpoint: step $BEST_STEP"
+exec bash cluster/hopper/reevaluate_ppo_checkpoints.pbs

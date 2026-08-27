@@ -1,0 +1,67 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_uf2k
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=08:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
+for required in "$CONFIG" "$DATA_ROOT/manifest.json" "$DATA_ROOT/train_2048.jsonl"; do
+  if [[ ! -f "$required" ]]; then
+    echo "Missing required input: $required" >&2
+    exit 2
+  fi
+done
+
+export NASHRS_PREFERENCE_COMPONENTS_JSON="$(
+  python3 - "$CONFIG" <<'PY'
+import json, sys
+with open(sys.argv[1]) as handle:
+    print(json.dumps(json.load(handle)["components"], separators=(",", ":")))
+PY
+)"
+
+export NASHRS_RUN_LABEL="UltraFeedback 2K general-preference scaling run"
+export NASHRS_RESULTS_NAMESPACE="openrlhf-nashrs-ultrafeedback-2k"
+export NASHRS_PROMPT_DATA="$DATA_ROOT/train_2048.jsonl"
+
+# Use 2,000 unique prompts from the 2,048-row train split. At batch size five,
+# this produces exactly 400 optimizer steps without prompt reuse.
+export NASHRS_MAX_SAMPLES=2000
+export NASHRS_NUM_EPISODES=1
+export NASHRS_ROLLOUT_BATCH_SIZE=5
+export NASHRS_MICRO_ROLLOUT_BATCH_SIZE=1
+export NASHRS_VLLM_GENERATE_BATCH_SIZE=5
+export NASHRS_TRAIN_BATCH_SIZE=5
+export NASHRS_MICRO_TRAIN_BATCH_SIZE=1
+
+export NASHRS_PROMPT_MAX_LEN=128
+export NASHRS_GENERATE_MAX_LEN=512
+export NASHRS_ACTOR_LR=1e-6
+export NASHRS_CRITIC_LR=1e-5
+export NASHRS_LR_WARMUP_RATIO=0.0
+export NASHRS_LR_SCHEDULER=constant
+export NASHRS_VERIFY_PARAMETER_UPDATE=1
+
+export NASHRS_SAVE_STEPS=50
+export NASHRS_MAX_CKPT_NUM=8
+export NASHRS_RUN_FIXED_EVAL=0
+export NASHRS_RUN_INDEPENDENT_EVAL=0
+
+export NASHRS_B1=2
+export NASHRS_B2=2
+export NASHRS_PROPOSAL_BATCH_SIZE=4
+export NASHRS_MAX_PROPOSALS=64
+export NASHRS_SEED=47
+export NASHRS_TRAIN_SEED=47
+
+echo "Data manifest: $DATA_ROOT/manifest.json"
+echo "Learning-curve checkpoints: 50 100 150 200 250 300 350 400"
+
+exec bash cluster/hopper/openrlhf_nash_rs_ppo_smoke.pbs

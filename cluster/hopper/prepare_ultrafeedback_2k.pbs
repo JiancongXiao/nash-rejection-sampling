@@ -1,0 +1,41 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_ufdata
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ncpus=4:mem=32gb
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+module load singularity
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+SCRATCH_ROOT="/scratch/jiancongxiao"
+VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_ROOT="$SCRATCH_ROOT/cache/huggingface"
+TOKENIZER="$HF_ROOT/hub/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/7ae557604adf67be50417f59c2c2f167def9a775"
+OUTPUT_DIR="$SCRATCH_ROOT/datasets/ultrafeedback_nashrs_2k_v1"
+REVISION="40b436560ca83a8dba36114c22ab3c66e43f6d5e"
+
+mkdir -p "$HF_ROOT" "$SCRATCH_ROOT/tmp" "$OUTPUT_DIR"
+
+singularity exec -e "$IMAGE" env \
+  HF_HOME="$HF_ROOT" \
+  HUGGINGFACE_HUB_CACHE="$HF_ROOT/hub" \
+  HF_HUB_DISABLE_XET=1 \
+  TMPDIR="$SCRATCH_ROOT/tmp" \
+  PYTHONPATH="$PBS_O_WORKDIR:$PBS_O_WORKDIR/src" \
+  "$VENV/bin/python" examples/prepare_ultrafeedback_prompts.py \
+    --revision "$REVISION" \
+    --tokenizer "$TOKENIZER" \
+    --output-dir "$OUTPUT_DIR" \
+    --train-size 2048 \
+    --selection-size 256 \
+    --test-size 1024 \
+    --max-prompt-tokens 128 \
+    --seed 20260827
+
+echo "UltraFeedback prompt splits ready: $OUTPUT_DIR"

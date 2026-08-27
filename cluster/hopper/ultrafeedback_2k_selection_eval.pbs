@@ -1,0 +1,23 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_ufsel
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+export NASHRS_SOURCE_NAMESPACE="openrlhf-nashrs-ultrafeedback-2k"
+export NASHRS_PREFERENCE_CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+export NASHRS_EVAL_PROMPT_DATA="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/selection_256.jsonl"
+export NASHRS_EVAL_OUTPUT_SUBDIR="selection_curve_256"
+export NASHRS_EVAL_MAX_NEW_TOKENS=512
+export NASHRS_EVAL_BATCH_SIZE=8
+export NASHRS_EVAL_GENERATION_BACKEND="vllm"
+export NASHRS_EVAL_STEPS="50 100 150 200 250 300 350 400"
+export NASHRS_BOOTSTRAP_SAMPLES=5000
+
+exec bash cluster/hopper/reevaluate_ppo_checkpoints.pbs
