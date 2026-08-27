@@ -1,0 +1,64 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_gp96
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=02:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+if [[ ! -f "$CONFIG" ]]; then
+  echo "Missing general-preference config: $CONFIG" >&2
+  exit 2
+fi
+
+export NASHRS_PREFERENCE_COMPONENTS_JSON="$(
+  python3 - "$CONFIG" <<'PY'
+import json, sys
+with open(sys.argv[1]) as handle:
+    print(json.dumps(json.load(handle)["components"], separators=(",", ":")))
+PY
+)"
+
+export NASHRS_RUN_LABEL="general-preference 96-step learning curve"
+export NASHRS_RESULTS_NAMESPACE="openrlhf-nashrs-general-preference-96step"
+export NASHRS_PROMPT_DATA="$PBS_O_WORKDIR/examples/data/ppo_pilot_prompts_128.jsonl"
+
+# 120 prompts / batch 5 = 24 steps per episode; four episodes = 96 steps.
+export NASHRS_MAX_SAMPLES=120
+export NASHRS_NUM_EPISODES=4
+export NASHRS_ROLLOUT_BATCH_SIZE=5
+export NASHRS_MICRO_ROLLOUT_BATCH_SIZE=1
+export NASHRS_VLLM_GENERATE_BATCH_SIZE=5
+export NASHRS_TRAIN_BATCH_SIZE=5
+export NASHRS_MICRO_TRAIN_BATCH_SIZE=1
+
+export NASHRS_PROMPT_MAX_LEN=128
+export NASHRS_GENERATE_MAX_LEN=512
+export NASHRS_ACTOR_LR=1e-6
+export NASHRS_CRITIC_LR=1e-5
+export NASHRS_LR_WARMUP_RATIO=0.0
+export NASHRS_LR_SCHEDULER=constant
+export NASHRS_VERIFY_PARAMETER_UPDATE=1
+
+# OpenRLHF saves every 24 steps, yielding 24/48/72/96 checkpoints.
+export NASHRS_SAVE_STEPS=24
+export NASHRS_MAX_CKPT_NUM=4
+export NASHRS_RUN_FIXED_EVAL=0
+export NASHRS_RUN_INDEPENDENT_EVAL=0
+
+export NASHRS_B1=2
+export NASHRS_B2=2
+export NASHRS_PROPOSAL_BATCH_SIZE=4
+export NASHRS_MAX_PROPOSALS=64
+export NASHRS_SEED=47
+export NASHRS_TRAIN_SEED=47
+
+echo "Preference config: $CONFIG"
+echo "Learning-curve checkpoints: 24 48 72 96"
+
+exec bash cluster/hopper/openrlhf_nash_rs_ppo_smoke.pbs
