@@ -34,6 +34,22 @@ class MetricsExportTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_step_lines([], samples_per_step=0)
 
+    def test_exports_common_comparison_costs(self):
+        lines = [
+            "✨ Global step 1: "
+            "{'comparison/preference_model_calls': 4.0, "
+            "'comparison/generated_tokens': 10.0, "
+            "'comparison/opponent_generations': 2.0, "
+            "'comparison/gpu_hours': 0.25}"
+        ]
+        record = parse_step_lines(lines, samples_per_step=5)[0]
+        self.assertEqual(
+            record["experiment/cumulative_total_preference_model_calls"], 20.0
+        )
+        self.assertEqual(record["experiment/cumulative_total_generated_tokens"], 50.0)
+        self.assertEqual(record["experiment/cumulative_total_opponent_generations"], 10.0)
+        self.assertEqual(record["experiment/cumulative_sum_sample_gpu_hours"], 1.25)
+
 
 if __name__ == "__main__":
     unittest.main()

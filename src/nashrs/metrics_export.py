@@ -16,6 +16,11 @@ COST_FIELDS = (
     "nashrs/acceptance_trials",
     "nashrs/accepted",
 )
+COMMON_COST_SUFFIXES = (
+    "preference_model_calls",
+    "generated_tokens",
+    "opponent_generations",
+)
 
 
 def parse_step_lines(lines: Iterable[str], samples_per_step: int = 1) -> list[dict]:
@@ -26,6 +31,8 @@ def parse_step_lines(lines: Iterable[str], samples_per_step: int = 1) -> list[di
     records = []
     cumulative = {field: 0.0 for field in COST_FIELDS}
     cumulative_sample_gpu_hours = 0.0
+    experiment_cumulative = {suffix: 0.0 for suffix in COMMON_COST_SUFFIXES}
+    experiment_cumulative_gpu_hours = 0.0
     for line in lines:
         if STEP_MARKER not in line:
             continue
@@ -69,6 +76,29 @@ def parse_step_lines(lines: Iterable[str], samples_per_step: int = 1) -> list[di
         record["nashrs/step_sum_sample_gpu_hours"] = step_sample_gpu_hours
         record["nashrs/cumulative_sum_sample_gpu_hours"] = (
             cumulative_sample_gpu_hours
+        )
+        for suffix_name in COMMON_COST_SUFFIXES:
+            source_key = f"comparison/{suffix_name}"
+            if source_key not in metrics:
+                source_key = f"nashrs/{suffix_name}"
+            step_total = float(metrics.get(source_key, 0.0)) * samples_per_step
+            experiment_cumulative[suffix_name] += step_total
+            record[f"experiment/step_total_{suffix_name}"] = step_total
+            record[f"experiment/cumulative_total_{suffix_name}"] = (
+                experiment_cumulative[suffix_name]
+            )
+        gpu_source = (
+            "comparison/gpu_hours"
+            if "comparison/gpu_hours" in metrics
+            else "nashrs/gpu_hours"
+        )
+        experiment_step_gpu_hours = (
+            float(metrics.get(gpu_source, 0.0)) * samples_per_step
+        )
+        experiment_cumulative_gpu_hours += experiment_step_gpu_hours
+        record["experiment/step_sum_sample_gpu_hours"] = experiment_step_gpu_hours
+        record["experiment/cumulative_sum_sample_gpu_hours"] = (
+            experiment_cumulative_gpu_hours
         )
         records.append(record)
     return records

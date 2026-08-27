@@ -1,0 +1,121 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_cmp
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=08:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+METHOD="${NASHRS_METHOD:?submit with NASHRS_METHOD}"
+SEED="${NASHRS_SEED:-47}"
+PHASE="${NASHRS_EGPO_PHASE:-}"
+PREFLIGHT="${NASHRS_PREFLIGHT:-0}"
+case "$METHOD" in
+  reward_ppo|self_play_ppo|nash_md_ppo|nash_rs|mpo_ppo|comal_ppo) ;;
+  egpo_ppo)
+    if [[ "$PHASE" != "prediction" && "$PHASE" != "correction" ]]; then
+      echo "EGPO requires NASHRS_EGPO_PHASE=prediction or correction" >&2
+      exit 2
+    fi
+    if [[ "$PHASE" == "correction" && -z "${NASHRS_OPPONENT_MODEL:-}" ]]; then
+      echo "EGPO correction requires the frozen predictor checkpoint" >&2
+      exit 3
+    fi
+    ;;
+  *)
+    echo "Unsupported comparison method: $METHOD" >&2
+    exit 4
+    ;;
+esac
+
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
+for required in "$CONFIG" "$DATA_ROOT/manifest.json" "$DATA_ROOT/train_2048.jsonl"; do
+  if [[ ! -f "$required" ]]; then
+    echo "Missing required input: $required" >&2
+    exit 5
+  fi
+done
+
+export NASHRS_PREFERENCE_COMPONENTS_JSON="$(
+  python3 - "$CONFIG" <<'PY'
+import json, sys
+with open(sys.argv[1]) as handle:
+    print(json.dumps(json.load(handle)["components"], separators=(",", ":")))
+PY
+)"
+
+SUFFIX="$METHOD"
+if [[ -n "$PHASE" ]]; then
+  SUFFIX="${METHOD}_${PHASE}"
+fi
+export NASHRS_RUN_LABEL="UltraFeedback 2K seven-method comparison: $SUFFIX seed $SEED"
+export NASHRS_RESULTS_NAMESPACE="openrlhf-7method-ultrafeedback-2k-seed${SEED}/$SUFFIX"
+export NASHRS_PROMPT_DATA="$DATA_ROOT/train_2048.jsonl"
+export NASHRS_METHOD="$METHOD"
+export NASHRS_SEED="$SEED"
+export NASHRS_TRAIN_SEED="$SEED"
+
+if [[ "$METHOD" == "nash_rs" ]]; then
+  export NASHRS_AGENT_FUNC_PATH="$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py"
+else
+  export NASHRS_AGENT_FUNC_PATH="$PBS_O_WORKDIR/examples/openrlhf/preference_ppo_agent.py"
+fi
+
+# One fixed-magnet MPO interval and one fixed-anchor COMAL outer round. EGPO's
+# two coarse phases are separate PBS jobs; correction starts from the original
+# policy and uses the frozen prediction checkpoint as its opponent.
+export NASHRS_OPPONENTS=2
+export NASHRS_GEOMETRIC_POOL=4
+export NASHRS_REFERENCE_WEIGHT=0.25
+
+export NASHRS_MAX_SAMPLES=2000
+export NASHRS_NUM_EPISODES=1
+export NASHRS_ROLLOUT_BATCH_SIZE=5
+export NASHRS_MICRO_ROLLOUT_BATCH_SIZE=1
+export NASHRS_VLLM_GENERATE_BATCH_SIZE=5
+export NASHRS_TRAIN_BATCH_SIZE=5
+export NASHRS_MICRO_TRAIN_BATCH_SIZE=1
+
+export NASHRS_PROMPT_MAX_LEN=128
+export NASHRS_GENERATE_MAX_LEN=512
+export NASHRS_ACTOR_LR=1e-6
+export NASHRS_CRITIC_LR=1e-5
+export NASHRS_LR_WARMUP_RATIO=0.0
+export NASHRS_LR_SCHEDULER=constant
+export NASHRS_VERIFY_PARAMETER_UPDATE=1
+export NASHRS_STAGE_LOCAL=1
+
+export NASHRS_SAVE_STEPS=50
+export NASHRS_MAX_CKPT_NUM=8
+export NASHRS_RUN_FIXED_EVAL=0
+export NASHRS_RUN_INDEPENDENT_EVAL=0
+
+export NASHRS_B1=2
+export NASHRS_B2=2
+export NASHRS_PROPOSAL_BATCH_SIZE=4
+export NASHRS_MAX_PROPOSALS=64
+
+if [[ "$PREFLIGHT" == "1" ]]; then
+  export NASHRS_RUN_LABEL="preflight: $NASHRS_RUN_LABEL"
+  export NASHRS_RESULTS_NAMESPACE="openrlhf-7method-preflight-seed${SEED}/$SUFFIX"
+  export NASHRS_MAX_SAMPLES=2
+  export NASHRS_ROLLOUT_BATCH_SIZE=2
+  export NASHRS_VLLM_GENERATE_BATCH_SIZE=2
+  export NASHRS_TRAIN_BATCH_SIZE=2
+  export NASHRS_GENERATE_MAX_LEN=48
+  export NASHRS_SAVE_STEPS=-1
+  export NASHRS_MAX_CKPT_NUM=1
+fi
+
+echo "Comparison method: $METHOD"
+echo "EGPO phase: ${PHASE:-not-applicable}"
+echo "Seed: $SEED"
+echo "Preflight: $PREFLIGHT"
+echo "Results namespace: $NASHRS_RESULTS_NAMESPACE"
+
+exec bash cluster/hopper/openrlhf_nash_rs_ppo_smoke.pbs

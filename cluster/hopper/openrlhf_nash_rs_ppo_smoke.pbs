@@ -16,12 +16,16 @@ module load singularity
 IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
 SCRATCH_ROOT="/scratch/jiancongxiao"
 VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_HOME_ROOT="$SCRATCH_ROOT/cache/huggingface"
 MODEL_ID="Qwen/Qwen2.5-0.5B-Instruct"
 PM_MODEL="OpenAssistant/reward-model-deberta-v3-large-v2"
 PM_REVISION="c355404efa9ad2ad069f3a197cae0523c14244fc"
 HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
 MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
 CUDA_DRIVER_LIB="$SCRATCH_ROOT/cuda-driver-lib"
+TORCH_CACHE_ROOT="$SCRATCH_ROOT/cache/torch"
+TRITON_CACHE_ROOT="$SCRATCH_ROOT/cache/triton"
+TMP_ROOT="$SCRATCH_ROOT/tmp"
 RUN_LABEL="${NASHRS_RUN_LABEL:-smoke test}"
 RESULTS_NAMESPACE="${NASHRS_RESULTS_NAMESPACE:-openrlhf-nashrs-ppo}"
 PROMPT_DATA="${NASHRS_PROMPT_DATA:-$PBS_O_WORKDIR/examples/data/ppo_smoke_prompts.jsonl}"
@@ -55,6 +59,10 @@ SAVE_PATH="$RUN_ROOT/actor"
 CKPT_PATH="$RUN_ROOT/deepspeed"
 VERIFY_OUTPUT="$RUN_ROOT/parameter_update.json"
 METRICS_OUTPUT="$RUN_ROOT/step_metrics.jsonl"
+METHOD_NAME="${NASHRS_METHOD:-nash_rs}"
+AGENT_FUNC_PATH="${NASHRS_AGENT_FUNC_PATH:-$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py}"
+STAGE_LOCAL="${NASHRS_STAGE_LOCAL:-0}"
+LOCAL_STAGE_ROOT="/tmp/nashrs-train-$JOB_NUMBER"
 
 if [[ ! -x "$VENV/bin/python" ]]; then
   echo "OpenRLHF environment is missing: $VENV" >&2
@@ -95,12 +103,72 @@ archive_ray_logs() {
     mkdir -p "$RAY_LOG_ARCHIVE"
     cp -a "$session/logs/." "$RAY_LOG_ARCHIVE/" || true
   fi
+  if [[ "$STAGE_LOCAL" == "1" && -d "$LOCAL_STAGE_ROOT" ]]; then
+    case "$LOCAL_STAGE_ROOT" in
+      /tmp/nashrs-train-[0-9]*) rm -rf -- "$LOCAL_STAGE_ROOT" ;;
+    esac
+  fi
 }
 trap archive_ray_logs EXIT
+
+if [[ "$STAGE_LOCAL" == "1" ]]; then
+  case "$LOCAL_STAGE_ROOT" in
+    /tmp/nashrs-train-[0-9]*) ;;
+    *)
+      echo "Refusing unsafe local stage path: $LOCAL_STAGE_ROOT" >&2
+      exit 7
+      ;;
+  esac
+  ORIGINAL_OPPONENT_MODEL="${NASHRS_OPPONENT_MODEL:-$MODEL}"
+  LOCAL_IMAGE="$LOCAL_STAGE_ROOT/$(basename "$IMAGE")"
+  LOCAL_VENV="$LOCAL_STAGE_ROOT/venv"
+  LOCAL_HF_CACHE="$LOCAL_STAGE_ROOT/huggingface/hub"
+  LOCAL_PROMPT_DATA="$LOCAL_STAGE_ROOT/$(basename "$PROMPT_DATA")"
+  mkdir -p "$LOCAL_HF_CACHE" "$LOCAL_STAGE_ROOT/cache/torch" \
+    "$LOCAL_STAGE_ROOT/cache/triton" "$LOCAL_STAGE_ROOT/tmp"
+  echo "Staging training runtime under $LOCAL_STAGE_ROOT"
+  df -h /tmp
+  cp -a "$IMAGE" "$LOCAL_IMAGE"
+  cp -a "$VENV" "$LOCAL_VENV"
+  cp -a "$MODEL_CACHE" "$LOCAL_HF_CACHE/"
+  for cache_dir in \
+    "$HF_CACHE/models--OpenAssistant--reward-model-deberta-v3-large-v2" \
+    "$HF_CACHE/models--Skywork--Skywork-Reward-V2-Qwen3-0.6B"
+  do
+    if [[ ! -d "$cache_dir" ]]; then
+      echo "Missing preference-model cache: $cache_dir" >&2
+      exit 8
+    fi
+    cp -a "$cache_dir" "$LOCAL_HF_CACHE/"
+  done
+  cp -a "$PROMPT_DATA" "$LOCAL_PROMPT_DATA"
+
+  IMAGE="$LOCAL_IMAGE"
+  VENV="$LOCAL_VENV"
+  HF_HOME_ROOT="$LOCAL_STAGE_ROOT/huggingface"
+  HF_CACHE="$LOCAL_HF_CACHE"
+  TORCH_CACHE_ROOT="$LOCAL_STAGE_ROOT/cache/torch"
+  TRITON_CACHE_ROOT="$LOCAL_STAGE_ROOT/cache/triton"
+  TMP_ROOT="$LOCAL_STAGE_ROOT/tmp"
+  MODEL_CACHE="$LOCAL_HF_CACHE/$(basename "$MODEL_CACHE")"
+  MODEL="$MODEL_CACHE/snapshots/$MODEL_REVISION"
+  PROMPT_DATA="$LOCAL_PROMPT_DATA"
+  if [[ "$ORIGINAL_OPPONENT_MODEL" == "$MODEL_CACHE"/snapshots/* || "$ORIGINAL_OPPONENT_MODEL" == *"/snapshots/$MODEL_REVISION" ]]; then
+    NASHRS_OPPONENT_MODEL="$MODEL"
+  else
+    LOCAL_OPPONENT_MODEL="$LOCAL_STAGE_ROOT/opponent_model"
+    echo "Staging external opponent: $ORIGINAL_OPPONENT_MODEL"
+    cp -a "$ORIGINAL_OPPONENT_MODEL" "$LOCAL_OPPONENT_MODEL"
+    NASHRS_OPPONENT_MODEL="$LOCAL_OPPONENT_MODEL"
+  fi
+  echo "Local training staging complete"
+fi
 
 echo "Job ID: ${PBS_JOBID:-unknown}"
 echo "Host: $(hostname)"
 echo "Run label: $RUN_LABEL"
+echo "Method: $METHOD_NAME"
+echo "Agent: $AGENT_FUNC_PATH"
 echo "Policy model: $MODEL_ID"
 echo "Policy revision: $MODEL_REVISION"
 echo "Local policy snapshot: $MODEL"
@@ -142,14 +210,14 @@ singularity exec --nv "$IMAGE" env \
   CUDA_VISIBLE_DEVICES="$VLLM_GPU_INDEX" \
   NASHRS_PBS_GPU_ASSIGNMENT="$PBS_GPU_ASSIGNMENT" \
   TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
-  HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+  HF_HOME="$HF_HOME_ROOT" \
   HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
   HF_HUB_DISABLE_XET=1 \
   HF_HUB_OFFLINE=1 \
   TRANSFORMERS_OFFLINE=1 \
-  TORCH_HOME="$SCRATCH_ROOT/cache/torch" \
-  TRITON_CACHE_DIR="$SCRATCH_ROOT/cache/triton" \
-  TMPDIR="$SCRATCH_ROOT/tmp" \
+  TORCH_HOME="$TORCH_CACHE_ROOT" \
+  TRITON_CACHE_DIR="$TRITON_CACHE_ROOT" \
+  TMPDIR="$TMP_ROOT" \
   RAY_TMPDIR="/tmp" \
   NASHRS_RAY_TMPDIR="$RAY_ROOT" \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
@@ -161,6 +229,11 @@ singularity exec --nv "$IMAGE" env \
   NASHRS_PROPOSAL_BATCH_SIZE="${NASHRS_PROPOSAL_BATCH_SIZE:-4}" \
   NASHRS_MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}" \
   NASHRS_SEED="$METHOD_SEED" \
+  NASHRS_METHOD="$METHOD_NAME" \
+  NASHRS_OPPONENT_MODEL="${NASHRS_OPPONENT_MODEL:-$MODEL}" \
+  NASHRS_OPPONENTS="${NASHRS_OPPONENTS:-2}" \
+  NASHRS_GEOMETRIC_POOL="${NASHRS_GEOMETRIC_POOL:-4}" \
+  NASHRS_REFERENCE_WEIGHT="${NASHRS_REFERENCE_WEIGHT:-0.25}" \
   NASHRS_REFERENCE_MODEL="$MODEL" \
   NASHRS_PREFERENCE_MODEL="$PM_MODEL" \
   NASHRS_PREFERENCE_REVISION="$PM_REVISION" \
@@ -178,7 +251,7 @@ singularity exec --nv "$IMAGE" env \
     --vllm_gpu_memory_utilization 0.20 \
     --pretrain "$MODEL" \
     --critic_pretrain "$MODEL" \
-    --agent_func_path "$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py" \
+    --agent_func_path "$AGENT_FUNC_PATH" \
     --save_path "$SAVE_PATH" \
     --ckpt_path "$CKPT_PATH" \
     --save_hf_ckpt \
@@ -220,7 +293,7 @@ singularity exec -e "$IMAGE" env \
 
 if [[ "$VERIFY_PARAMETER_UPDATE" == "1" ]]; then
   singularity exec -e "$IMAGE" env \
-    HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+    HF_HOME="$HF_HOME_ROOT" \
     HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
