@@ -16,6 +16,7 @@ export NASHRS_EVAL_PROMPT_DATA="$PBS_O_WORKDIR/examples/data/ppo_test_prompts_12
 export NASHRS_EVAL_OUTPUT_SUBDIR="general_preference_independent_test_128"
 export NASHRS_EVAL_MAX_NEW_TOKENS=512
 export NASHRS_EVAL_BATCH_SIZE=8
+export NASHRS_EVAL_GENERATION_BACKEND="vllm"
 export NASHRS_EVAL_STEPS="24"
 export NASHRS_BOOTSTRAP_SAMPLES=2000
 
