@@ -33,6 +33,7 @@ PROMPT_DATA="${NASHRS_EVAL_PROMPT_DATA:-examples/data/ppo_eval_prompts_16.jsonl}
 OUTPUT_SUBDIR="${NASHRS_EVAL_OUTPUT_SUBDIR:-fixed_eval_base_tokenizer}"
 MAX_NEW_TOKENS="${NASHRS_EVAL_MAX_NEW_TOKENS:-256}"
 BATCH_SIZE="${NASHRS_EVAL_BATCH_SIZE:-4}"
+GENERATION_BACKEND="${NASHRS_EVAL_GENERATION_BACKEND:-transformers}"
 BOOTSTRAP_SAMPLES="${NASHRS_BOOTSTRAP_SAMPLES:-2000}"
 EVAL_STEPS="${NASHRS_EVAL_STEPS:-}"
 OUTPUT_DIR="$SOURCE_ROOT/$OUTPUT_SUBDIR"
@@ -98,6 +99,7 @@ singularity exec --nv "$IMAGE" env \
     "${PREFERENCE_ARGS[@]}" \
     --max-new-tokens "$MAX_NEW_TOKENS" \
     --batch-size "$BATCH_SIZE" \
+    --generation-backend "$GENERATION_BACKEND" \
     --bootstrap-samples "$BOOTSTRAP_SAMPLES" \
     "${STEP_ARGS[@]}" \
     --output-dir "$OUTPUT_DIR"
