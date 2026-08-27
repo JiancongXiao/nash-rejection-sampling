@@ -125,6 +125,54 @@ def generate_responses(
     return responses, lengths, truncated
 
 
+def generate_responses_vllm(
+    model_path: Path,
+    tokenizer_path: Path,
+    prompts: list[str],
+    max_new_tokens: int,
+    seed: int,
+) -> tuple[list[str], list[int], list[bool]]:
+    """Greedy checkpoint generation through the validated vLLM stack."""
+
+    from transformers import AutoTokenizer
+    from vllm import LLM, SamplingParams
+
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    rendered = [
+        tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        for prompt in prompts
+    ]
+    llm = LLM(
+        model=str(model_path),
+        tokenizer=str(tokenizer_path),
+        dtype="bfloat16",
+        max_model_len=128 + max_new_tokens,
+        gpu_memory_utilization=0.30,
+        enforce_eager=True,
+        seed=seed,
+    )
+    outputs = llm.generate(
+        rendered,
+        SamplingParams(temperature=0.0, max_tokens=max_new_tokens, seed=seed),
+    )
+    responses = [output.outputs[0].text for output in outputs]
+    lengths = [len(output.outputs[0].token_ids) for output in outputs]
+    truncated = [output.outputs[0].finish_reason == "length" for output in outputs]
+    del llm
+    gc.collect()
+    try:
+        import torch
+
+        torch.cuda.empty_cache()
+    except ImportError:
+        pass
+    return responses, lengths, truncated
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompts", type=Path, required=True)
@@ -137,6 +185,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--preference-revision")
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument(
+        "--generation-backend",
+        choices=("transformers", "vllm"),
+        default="transformers",
+    )
     parser.add_argument("--steps", type=int, nargs="*")
     parser.add_argument("--bootstrap-samples", type=int, default=2000)
     parser.add_argument("--bootstrap-seed", type=int, default=20260825)
@@ -256,13 +309,27 @@ def main() -> None:
     response_path = args.output_dir / "responses.jsonl"
     with response_path.open("w") as handle:
         for name, path in models:
-            values, lengths, truncated = generate_responses(
-                path,
-                args.base_model,
-                prompts,
-                args.max_new_tokens,
-                args.batch_size,
+            print(
+                f"Generating {len(prompts)} responses for {name} with "
+                f"{args.generation_backend}",
+                flush=True,
             )
+            if args.generation_backend == "vllm":
+                values, lengths, truncated = generate_responses_vllm(
+                    path,
+                    args.base_model,
+                    prompts,
+                    args.max_new_tokens,
+                    args.bootstrap_seed,
+                )
+            else:
+                values, lengths, truncated = generate_responses(
+                    path,
+                    args.base_model,
+                    prompts,
+                    args.max_new_tokens,
+                    args.batch_size,
+                )
             responses[name] = values
             generation_stats[name] = {
                 "mean_response_tokens": sum(lengths) / len(lengths),
@@ -284,8 +351,15 @@ def main() -> None:
                     )
                     + "\n"
                 )
+            handle.flush()
+            print(
+                f"Finished {name}: mean_tokens={generation_stats[name]['mean_response_tokens']:.1f}, "
+                f"truncation={generation_stats[name]['truncation_rate']:.3f}",
+                flush=True,
+            )
 
     if args.preference_config:
+        print(f"Loading preference mixture: {args.preference_config}", flush=True)
         preference_spec = json.loads(args.preference_config.read_text())
         component_configs = preference_spec["components"]
         preference = build_preference_oracle(component_configs, device="cuda")
@@ -324,7 +398,9 @@ def main() -> None:
         }
         for component_name, component in zip(component_names, preference.components)
     }
+    print("Finished component reward scoring", flush=True)
     pairwise = evaluate_pairwise(prompts, responses, preference)
+    print("Finished mixture pairwise evaluation", flush=True)
     methods = list(responses)
     intervals = bootstrap_intervals(
         methods,
