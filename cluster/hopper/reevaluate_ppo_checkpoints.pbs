@@ -20,6 +20,7 @@ fi
 IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
 SCRATCH_ROOT="/scratch/jiancongxiao"
 VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_HOME_ROOT="$SCRATCH_ROOT/cache/huggingface"
 HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
 MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
 PM_MODEL="OpenAssistant/reward-model-deberta-v3-large-v2"
@@ -37,6 +38,8 @@ GENERATION_BACKEND="${NASHRS_EVAL_GENERATION_BACKEND:-transformers}"
 BOOTSTRAP_SAMPLES="${NASHRS_BOOTSTRAP_SAMPLES:-2000}"
 EVAL_STEPS="${NASHRS_EVAL_STEPS:-}"
 OUTPUT_DIR="$SOURCE_ROOT/$OUTPUT_SUBDIR"
+STAGE_LOCAL="${NASHRS_STAGE_LOCAL:-0}"
+LOCAL_STAGE_ROOT="/tmp/nashrs-eval-${PBS_JOBID%%.*}"
 
 shopt -s nullglob
 MODEL_SNAPSHOTS=("$MODEL_CACHE"/snapshots/*)
@@ -50,6 +53,84 @@ done
 if [[ -z "$BASE_MODEL" || ! -d "$CHECKPOINT_ROOT" ]]; then
   echo "Missing base model or source checkpoints under $SOURCE_ROOT" >&2
   exit 3
+fi
+
+if [[ "$STAGE_LOCAL" == "1" ]]; then
+  case "$LOCAL_STAGE_ROOT" in
+    /tmp/nashrs-eval-[0-9]*) ;;
+    *)
+      echo "Refusing unsafe local stage path: $LOCAL_STAGE_ROOT" >&2
+      exit 5
+      ;;
+  esac
+
+  cleanup_local_stage() {
+    rm -rf -- "$LOCAL_STAGE_ROOT"
+  }
+  trap cleanup_local_stage EXIT
+
+  LOCAL_IMAGE="$LOCAL_STAGE_ROOT/$(basename "$IMAGE")"
+  LOCAL_VENV="$LOCAL_STAGE_ROOT/venv"
+  LOCAL_HF_CACHE="$LOCAL_STAGE_ROOT/huggingface/hub"
+  LOCAL_CHECKPOINT_ROOT="$LOCAL_STAGE_ROOT/checkpoints"
+  LOCAL_FINAL_MODEL="$LOCAL_STAGE_ROOT/final_model"
+  LOCAL_PROMPT_DATA="$LOCAL_STAGE_ROOT/$(basename "$PROMPT_DATA")"
+  LOCAL_PREFERENCE_CONFIG="$LOCAL_STAGE_ROOT/preference_config.json"
+
+  mkdir -p "$LOCAL_HF_CACHE" "$LOCAL_CHECKPOINT_ROOT"
+  echo "Staging evaluation runtime under $LOCAL_STAGE_ROOT"
+  df -h /tmp
+
+  echo "Staging 11 GiB Singularity image"
+  cp -a "$IMAGE" "$LOCAL_IMAGE"
+  echo "Staging 11 GiB Python environment"
+  cp -a "$VENV" "$LOCAL_VENV"
+
+  echo "Staging base and preference-model caches"
+  cp -a "$MODEL_CACHE" "$LOCAL_HF_CACHE/"
+  for cache_dir in \
+    "$HF_CACHE/models--OpenAssistant--reward-model-deberta-v3-large-v2" \
+    "$HF_CACHE/models--Skywork--Skywork-Reward-V2-Qwen3-0.6B"
+  do
+    if [[ ! -d "$cache_dir" ]]; then
+      echo "Missing preference-model cache: $cache_dir" >&2
+      exit 6
+    fi
+    cp -a "$cache_dir" "$LOCAL_HF_CACHE/"
+  done
+
+  echo "Staging requested checkpoints"
+  if [[ -n "$EVAL_STEPS" ]]; then
+    for step in $EVAL_STEPS; do
+      checkpoint="$CHECKPOINT_ROOT/global_step${step}_hf"
+      if [[ ! -d "$checkpoint" ]]; then
+        echo "Missing requested checkpoint: $checkpoint" >&2
+        exit 7
+      fi
+      cp -a "$checkpoint" "$LOCAL_CHECKPOINT_ROOT/"
+    done
+  elif [[ -d "$FINAL_MODEL" ]]; then
+    cp -a "$FINAL_MODEL" "$LOCAL_FINAL_MODEL"
+  fi
+
+  cp -a "$PROMPT_DATA" "$LOCAL_PROMPT_DATA"
+  if [[ -n "${NASHRS_PREFERENCE_CONFIG:-}" ]]; then
+    cp -a "$NASHRS_PREFERENCE_CONFIG" "$LOCAL_PREFERENCE_CONFIG"
+    NASHRS_PREFERENCE_CONFIG="$LOCAL_PREFERENCE_CONFIG"
+  fi
+
+  IMAGE="$LOCAL_IMAGE"
+  VENV="$LOCAL_VENV"
+  HF_HOME_ROOT="$LOCAL_STAGE_ROOT/huggingface"
+  HF_CACHE="$LOCAL_HF_CACHE"
+  MODEL_CACHE="$LOCAL_HF_CACHE/$(basename "$MODEL_CACHE")"
+  BASE_MODEL="$MODEL_CACHE/snapshots/$(basename "$BASE_MODEL")"
+  CHECKPOINT_ROOT="$LOCAL_CHECKPOINT_ROOT"
+  if [[ -d "$LOCAL_FINAL_MODEL" ]]; then
+    FINAL_MODEL="$LOCAL_FINAL_MODEL"
+  fi
+  PROMPT_DATA="$LOCAL_PROMPT_DATA"
+  echo "Local staging complete"
 fi
 
 PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
@@ -85,7 +166,7 @@ fi
 singularity exec --nv "$IMAGE" env \
   CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
   TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
-  HF_HOME="$SCRATCH_ROOT/cache/huggingface" \
+  HF_HOME="$HF_HOME_ROOT" \
   HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
   HF_HUB_DISABLE_XET=1 \
   HF_HUB_OFFLINE=1 \
