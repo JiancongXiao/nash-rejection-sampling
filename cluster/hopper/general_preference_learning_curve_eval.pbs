@@ -1,0 +1,23 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N nashrs_gpcurve
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=00:30:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+cd "$PBS_O_WORKDIR"
+
+export NASHRS_SOURCE_NAMESPACE="openrlhf-nashrs-general-preference-96step"
+export NASHRS_PREFERENCE_CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+export NASHRS_EVAL_PROMPT_DATA="$PBS_O_WORKDIR/examples/data/ppo_eval_prompts_16.jsonl"
+export NASHRS_EVAL_OUTPUT_SUBDIR="general_preference_validation_curve"
+export NASHRS_EVAL_MAX_NEW_TOKENS=512
+export NASHRS_EVAL_BATCH_SIZE=8
+export NASHRS_EVAL_GENERATION_BACKEND="vllm"
+export NASHRS_EVAL_STEPS="24 48 72 96"
+export NASHRS_BOOTSTRAP_SAMPLES=2000
+
+exec bash cluster/hopper/reevaluate_ppo_checkpoints.pbs
