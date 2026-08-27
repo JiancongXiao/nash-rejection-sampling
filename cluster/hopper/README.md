@@ -274,3 +274,24 @@ It disables the dashboard, constrains Ray to the PBS allocation, uses a 4 GiB
 object store, fixes the single-node address to loopback, and fails within three
 minutes rather than consuming the full training walltime. Logs are persisted
 under `/scratch/jiancongxiao/results/ray-init-smoke/JOB_ID/logs/`.
+
+## General-preference 96-step learning curve
+
+After the 24-step vertical slice, run four episodes over the same 120-prompt
+pilot set and save checkpoints at steps 24, 48, 72, and 96:
+
+```bash
+qsub cluster/hopper/openrlhf_nash_rs_general_preference_96step.pbs
+```
+
+Evaluate those checkpoints only on the 16-prompt selection set using vLLM and
+the same reward mixture:
+
+```bash
+qsub -v NASHRS_SOURCE_JOB_ID=TRAIN_JOB_ID \
+  cluster/hopper/general_preference_learning_curve_eval.pbs
+```
+
+This evaluation is for learning-curve selection, not a final statistical
+claim. The independent 128-prompt set is not used again until the training
+recipe is fixed.
