@@ -86,11 +86,16 @@ def generate_completion(
             eos_token_id=tokenizer.eos_token_id,
             **generation_kwargs,
         )
-    continuation = output[0, prompt_ids.shape[1] :]
+    # ``generate`` ran under inference mode, so its result is an inference
+    # tensor.  Native MPO/COMAL subsequently reuse these token ids in a
+    # differentiable forward pass; clone outside the context to make ordinary
+    # tensors that autograd is allowed to save for backward.
+    full_ids = output[0].detach().clone()
+    continuation = full_ids[prompt_ids.shape[1] :].clone()
     return {
-        "prompt_ids": prompt_ids[0].detach(),
-        "full_ids": output[0].detach(),
-        "completion_ids": continuation.detach(),
+        "prompt_ids": prompt_ids[0].detach().clone(),
+        "full_ids": full_ids,
+        "completion_ids": continuation,
         "text": tokenizer.decode(continuation, skip_special_tokens=True),
     }
 

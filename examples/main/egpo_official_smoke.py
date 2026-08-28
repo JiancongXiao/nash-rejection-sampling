@@ -37,8 +37,28 @@ def main() -> None:
     from trainers.extragradient_trainer import ExtragradientTrainer
 
     import torch
+    from accelerate.optimizer import AcceleratedOptimizer
     from datasets import Dataset
     from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+
+    # The published single-GPU EGPO trainer gathers the backed-up optimizer
+    # state into a one-element per-rank list before restoring it.  Current
+    # Accelerate expects the local state dict directly.  Accept that official
+    # representation at the wrapper boundary without changing EGPO's
+    # prediction/correction update.
+    original_load_state_dict = AcceleratedOptimizer.load_state_dict
+
+    def load_egpo_state_dict(optimizer, state_dict):
+        if isinstance(state_dict, list):
+            local_states = [state for state in state_dict if state is not None]
+            if len(local_states) != 1:
+                raise ValueError(
+                    "single-GPU EGPO expected exactly one optimizer state dict"
+                )
+            state_dict = local_states[0]
+        return original_load_state_dict(optimizer, state_dict)
+
+    AcceleratedOptimizer.load_state_dict = load_egpo_state_dict
 
     set_seed(args.seed)
     args.output.mkdir(parents=True, exist_ok=True)
