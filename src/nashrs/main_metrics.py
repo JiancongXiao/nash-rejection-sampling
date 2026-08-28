@@ -65,10 +65,10 @@ def write_run_manifest(
     expected_steps: int,
     parameter_update: dict,
 ) -> dict:
-    """Write a machine-checkable manifest for a pilot or full Main run."""
+    """Write a machine-checkable manifest for a non-smoke Main run."""
 
-    if run_kind not in {"pilot", "full"}:
-        raise ValueError("run_kind must be pilot or full")
+    if run_kind not in {"pilot", "scaling_gate", "full"}:
+        raise ValueError("run_kind must be pilot, scaling_gate, or full")
     spec = get_main_method(method)
     values = validate_run_step_records(records, expected_steps=expected_steps)
     changed = int(parameter_update.get("changed_elements", 0))

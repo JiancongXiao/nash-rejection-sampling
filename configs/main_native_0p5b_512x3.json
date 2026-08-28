@@ -1,0 +1,29 @@
+{
+  "suite": "main",
+  "run_kind": "scaling_gate",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "methods": [
+    "reward_ppo",
+    "self_play",
+    "nash_md",
+    "nash_rs",
+    "mpo",
+    "egpo",
+    "comal"
+  ],
+  "seeds": [47, 101, 211],
+  "prompt_budget": 512,
+  "prompt_max_length": 128,
+  "generation_max_length": 512,
+  "training_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/train_2048.jsonl",
+  "selection_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/selection_256.jsonl",
+  "test_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/test_1024.jsonl",
+  "preference_config": "configs/general_preference_primary.json",
+  "nash_rs": {
+    "b1": 2,
+    "b2": 2,
+    "proposal_batch_size": 4,
+    "max_proposals": 64
+  },
+  "purpose": "Three-seed 512-prompt implementation and stability gate; not a paper result."
+}

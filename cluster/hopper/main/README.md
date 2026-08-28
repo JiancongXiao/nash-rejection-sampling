@@ -59,3 +59,25 @@ bash cluster/hopper/main/submit_0p5b_pilot_eval.sh \
 The evaluation includes the shared base model, performs greedy generation,
 and exports the full pairwise matrix, average/worst-case win rates, empirical
 exploitability, component rewards, and 95% bootstrap confidence intervals.
+
+## 512-prompt, three-seed scaling gate
+
+After the seven native-entry pilots pass, submit the controlled 0.5B stability
+gate over one fixed 512-prompt pool and seeds 47, 101, and 211:
+
+```bash
+bash cluster/hopper/main/submit_0p5b_512x3.sh
+```
+
+This launches 21 one-GPU jobs.  All methods see the same prompt pool and use a
+512-token generation cap.  The number of optimizer steps is deliberately
+method-native rather than artificially equalized: OpenRLHF consumes two
+prompts per global step; TRL/EGPO/COMAL consume one; MPO performs two inner
+steps per outer prompt.  The submission TSV is written under
+`/scratch/jiancongxiao/results/main-native-0p5b-512-submissions/`, and run
+artifacts are separated by seed and method under
+`/scratch/jiancongxiao/results/main-native-0p5b-512-seed*/`.
+
+This batch is an implementation and cross-seed stability gate.  It is not a
+paper result, and the COMAL entry still exercises the official INPO inner
+update rather than the complete four-GPU multi-stage COMAL outer pipeline.

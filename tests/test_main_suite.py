@@ -145,6 +145,28 @@ class MainSuiteTest(unittest.TestCase):
         self.assertEqual(manifest["run_kind"], "pilot")
         self.assertEqual(manifest["accounting_totals"]["generated_tokens"], 160.0)
 
+    def test_scaling_gate_is_distinct_from_pilot_and_full(self) -> None:
+        records = [
+            {
+                "step": 1,
+                "loss": 0.5,
+                "learning_rate": 1e-6,
+                "preference_model_calls": 2,
+                "generated_tokens": 20,
+                "gpu_hours": 0.002,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = write_run_manifest(
+                Path(directory) / "run_manifest.json",
+                method="nash_rs",
+                run_kind="scaling_gate",
+                records=records,
+                expected_steps=1,
+                parameter_update={"changed_elements": 1, "l2_update_norm": 0.001},
+            )
+        self.assertEqual(manifest["run_kind"], "scaling_gate")
+
 
 if __name__ == "__main__":
     unittest.main()

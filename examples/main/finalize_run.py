@@ -13,7 +13,9 @@ from nashrs.main_metrics import write_run_manifest
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", required=True)
-    parser.add_argument("--run-kind", choices=("pilot", "full"), required=True)
+    parser.add_argument(
+        "--run-kind", choices=("pilot", "scaling_gate", "full"), required=True
+    )
     parser.add_argument("--steps", required=True, type=int)
     parser.add_argument("--metrics", required=True, type=Path)
     parser.add_argument("--parameter-update", required=True, type=Path)
