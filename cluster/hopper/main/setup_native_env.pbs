@@ -30,14 +30,21 @@ singularity exec --nv "$IMAGE" env \
     'datasets==3.2.0' \
     'transformers==4.48.0' \
     'trl==0.13.0' \
-    'peft==0.14.0'
+    'peft==0.14.0' \
+    'tokenizers==0.21.0' \
+    'huggingface-hub==0.27.1' \
+    'safetensors==0.5.2' \
+    'dill==0.3.8' \
+    'fsspec==2024.2.0' \
+    'multiprocess==0.70.16' \
+    'pyarrow==18.1.0'
 
 bash cluster/hopper/main/setup_sources.sh
 
 singularity exec --nv "$IMAGE" env \
   PYTHONPATH="$PBS_O_WORKDIR/src" \
   "$VENV/bin/python" - <<'PY'
-import accelerate, datasets, peft, torch, transformers, trl
+import accelerate, datasets, peft, tokenizers, torch, transformers, trl
 from trl import NashMDConfig, NashMDTrainer
 print("torch:", torch.__version__)
 print("transformers:", transformers.__version__)
@@ -45,6 +52,7 @@ print("trl:", trl.__version__)
 print("accelerate:", accelerate.__version__)
 print("datasets:", datasets.__version__)
 print("peft:", peft.__version__)
+print("tokenizers:", tokenizers.__version__)
 print("cuda:", torch.cuda.is_available())
 print("gpu:", torch.cuda.get_device_name(0))
 print("Nash-MD API:", NashMDConfig.__name__, NashMDTrainer.__name__)
