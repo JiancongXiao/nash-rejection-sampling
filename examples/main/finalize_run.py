@@ -23,7 +23,10 @@ def main() -> None:
         args.output,
         method=args.method,
         run_kind=args.run_kind,
-        records=[normalize_record(record) for record in read_jsonl(args.metrics)],
+        records=[
+            normalize_record(record, method=args.method)
+            for record in read_jsonl(args.metrics)
+        ],
         expected_steps=args.steps,
         parameter_update=json.loads(args.parameter_update.read_text()),
     )

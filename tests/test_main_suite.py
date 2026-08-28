@@ -38,6 +38,22 @@ class MainSuiteTest(unittest.TestCase):
         self.assertEqual(record["generated_tokens"], 128.0)
         self.assertEqual(record["gpu_hours"], 0.01)
 
+    def test_openrlhf_main_cost_includes_actor_rollout_tokens(self) -> None:
+        record = normalize_record(
+            {
+                "step": 1,
+                "policy_loss": 0.25,
+                "actor_lr": 1e-6,
+                "comparison/preference_model_calls": 4.0,
+                "comparison/generated_tokens": 120.0,
+                "comparison/gpu_hours": 0.01,
+                "response_length": 48.5,
+                "nashrs/samples_in_step": 2,
+            },
+            method="nash_rs",
+        )
+        self.assertEqual(record["generated_tokens"], 217.0)
+
     def test_main_has_seven_separate_method_native_entries(self) -> None:
         self.assertEqual(
             MAIN_METHODS,

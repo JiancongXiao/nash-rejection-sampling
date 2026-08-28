@@ -13,7 +13,7 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def normalize_record(record: dict) -> dict:
+def normalize_record(record: dict, method: str | None = None) -> dict:
     """Map trainer-specific log names onto the Main smoke metric contract."""
 
     value = dict(record)
@@ -37,6 +37,15 @@ def normalize_record(record: dict) -> dict:
             if source in value:
                 value[destination] = value[source]
                 break
+    # OpenRLHF agent metrics count method-specific auxiliary generations.  The
+    # actor rollout itself is logged separately as the mean response length;
+    # include it here so Main's generated-token cost is comparable with native
+    # trainers, which already count every generated completion.
+    if method in {"reward_ppo", "nash_rs"} and "response_length" in value:
+        samples = float(value.get("nashrs/samples_in_step", 1.0))
+        value["generated_tokens"] = float(value.get("generated_tokens", 0.0)) + (
+            float(value["response_length"]) * samples
+        )
     return value
 
 
@@ -51,7 +60,10 @@ def main() -> None:
     manifest = write_smoke_manifest(
         args.output,
         method=args.method,
-        records=[normalize_record(record) for record in read_jsonl(args.metrics)],
+        records=[
+            normalize_record(record, method=args.method)
+            for record in read_jsonl(args.metrics)
+        ],
         expected_steps=args.steps,
         parameter_update=json.loads(args.parameter_update.read_text()),
     )
