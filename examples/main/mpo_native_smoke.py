@@ -46,13 +46,13 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     policy = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype=torch.bfloat16, attn_implementation="sdpa"
+        args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to("cuda")
     magnet = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype=torch.bfloat16, attn_implementation="sdpa"
+        args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to("cuda")
     old_policy = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype=torch.bfloat16, attn_implementation="sdpa"
+        args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to("cuda")
     magnet.eval()
     old_policy.eval()

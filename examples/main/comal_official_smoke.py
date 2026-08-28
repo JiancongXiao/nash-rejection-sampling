@@ -50,7 +50,7 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype=torch.bfloat16, attn_implementation="sdpa"
+        args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to("cuda")
     model.train()
     name, tensor = first_trainable_tensor(model)

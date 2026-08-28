@@ -23,7 +23,7 @@ if (( STEPS < 2 || STEPS > 4 )); then
 fi
 
 CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
-PROMPTS="${NASHRS_MAIN_PROMPTS:-$PBS_O_WORKDIR/examples/data/ppo_smoke_prompts.jsonl}"
+PROMPTS="${NASHRS_MAIN_PROMPTS:-$PBS_O_WORKDIR/examples/data/ppo_pilot_prompts_32.jsonl}"
 SOURCE_ROOT="${NASHRS_MAIN_SOURCE_ROOT:-/scratch/jiancongxiao/external/nashrs-main}"
 RESULT_ROOT="/scratch/jiancongxiao/results/main-0p5b-smoke/$METHOD/${PBS_JOBID}"
 MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct"
