@@ -1,5 +1,13 @@
 # Nash-RS: unified PPO experiments for NLHF
 
+The repository now uses two fixed experiment-suite names:
+
+- **Main**: Nash-RS versus method-native faithful baselines.
+- **Controlled ablation**: all methods adapted to OpenRLHF/PPO.
+
+Main is the primary paper comparison. See `docs/EXPERIMENT_SUITES.md` and
+`cluster/hopper/main/README.md` for its pinned sources and 0.5B smoke workflow.
+
 This repository starts with a small, testable core for comparing NLHF methods
 under one PPO/OpenRLHF training backbone. Methods share prompts, policy and
 reference samplers, preference oracle, generation settings, and PPO
