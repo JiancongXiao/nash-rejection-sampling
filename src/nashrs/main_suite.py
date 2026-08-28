@@ -147,6 +147,14 @@ def validate_smoke_steps(steps: int) -> int:
     return steps
 
 
+def validate_optimizer_steps(steps: int) -> int:
+    """Validate a positive optimizer-step budget for non-smoke Main runs."""
+
+    if steps <= 0:
+        raise ValueError("optimizer steps must be positive")
+    return steps
+
+
 def validate_source_checkout(root: Path, source: ExternalSource) -> list[str]:
     """Return human-readable problems without modifying an external checkout."""
 

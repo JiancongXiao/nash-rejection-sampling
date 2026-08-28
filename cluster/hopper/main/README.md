@@ -35,3 +35,15 @@ not paper results.
 COMAL's full Main experiment still uses its complete multi-stage official
 pipeline and needs a separate four-GPU PBS job. The one-GPU smoke only validates
 its published INPO inner update and artifact contract.
+
+After all seven smokes pass, run the 16-step 0.5B native-entry pilot:
+
+```bash
+bash cluster/hopper/main/submit_0p5b_pilot.sh 47 16
+```
+
+This pilot exercises longer generation and the common accounting/manifest
+contract. It is still an engineering pilot, not a Main-table result. In
+particular, COMAL's paper result must use the complete multi-stage pipeline and
+its four-GPU job; the pilot only checks the scalable inner-update path before
+that pipeline is launched.

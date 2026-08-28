@@ -1,0 +1,14 @@
+{
+  "suite": "main",
+  "run_kind": "pilot",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "optimizer_steps": 16,
+  "seed": 47,
+  "prompt_max_length": 128,
+  "generation_max_length": 128,
+  "training_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/train_2048.jsonl",
+  "selection_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/selection_256.jsonl",
+  "test_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/test_1024.jsonl",
+  "preference_config": "configs/general_preference_primary.json",
+  "purpose": "End-to-end native-entry pilot; not a paper result."
+}

@@ -22,7 +22,7 @@ from examples.main.smoke_common import (
     sequence_logprob,
     write_records,
 )
-from nashrs.main_suite import COMAL_SOURCE, validate_smoke_steps
+from nashrs.main_suite import COMAL_SOURCE, validate_optimizer_steps
 
 
 def main() -> None:
@@ -37,7 +37,7 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=48)
     parser.add_argument("--seed", type=int, default=47)
     args = parser.parse_args()
-    args.steps = validate_smoke_steps(args.steps)
+    args.steps = validate_optimizer_steps(args.steps)
     sys.path.insert(0, str(args.source_root / COMAL_SOURCE.subdirectory))
     from losses import nash_loss
 

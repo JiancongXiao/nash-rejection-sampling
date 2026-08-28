@@ -1,0 +1,149 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N main_pilot
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=04:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+METHOD="${NASHRS_MAIN_METHOD:?submit with NASHRS_MAIN_METHOD}"
+STEPS="${NASHRS_MAIN_STEPS:-16}"
+SEED="${NASHRS_SEED:-47}"
+case "$METHOD" in
+  reward_ppo|self_play|nash_md|nash_rs|mpo|egpo|comal) ;;
+  *) echo "Unknown Main method: $METHOD" >&2; exit 2 ;;
+esac
+if (( STEPS <= 4 )); then
+  echo "Main pilot requires more than four optimizer steps" >&2
+  exit 3
+fi
+
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
+PROMPTS="${NASHRS_MAIN_PROMPTS:-$DATA_ROOT/train_2048.jsonl}"
+SOURCE_ROOT="${NASHRS_MAIN_SOURCE_ROOT:-/scratch/jiancongxiao/external/nashrs-main}"
+NAMESPACE="main-native-pilot-0p5b-seed${SEED}/$METHOD"
+RESULT_ROOT="/scratch/jiancongxiao/results/$NAMESPACE/${PBS_JOBID}"
+MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct"
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+VENV="/scratch/jiancongxiao/venvs/nashrs-main-native-0.1"
+HF_CACHE="/scratch/jiancongxiao/cache/huggingface/hub"
+mkdir -p "$RESULT_ROOT"
+
+for required in "$CONFIG" "$PROMPTS" "$VENV/bin/python"; do
+  if [[ ! -e "$required" ]]; then
+    echo "Missing Main pilot input: $required" >&2
+    exit 4
+  fi
+done
+MODEL=""
+for candidate in "$MODEL_CACHE"/snapshots/*; do
+  if [[ -f "$candidate/config.json" ]]; then MODEL="$candidate"; break; fi
+done
+if [[ -z "$MODEL" ]]; then
+  echo "No cached Qwen2.5-0.5B snapshot" >&2
+  exit 5
+fi
+
+module load singularity
+PBS_GPU="${CUDA_VISIBLE_DEVICES:-}"
+if [[ "$PBS_GPU" == GPU-* ]]; then
+  GPU_INDEX="$(nvidia-smi --id="$PBS_GPU" --query-gpu=index --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')"
+else
+  GPU_INDEX="$PBS_GPU"
+fi
+if [[ ! "$GPU_INDEX" =~ ^[0-9]+$ ]]; then
+  echo "Could not map PBS GPU: $PBS_GPU" >&2
+  exit 6
+fi
+
+echo "Suite: Main"
+echo "Run kind: pilot"
+echo "Method: $METHOD"
+echo "Optimizer steps: $STEPS"
+echo "Seed: $SEED"
+echo "Prompts: $PROMPTS"
+echo "Model: $MODEL"
+echo "Result root: $RESULT_ROOT"
+
+if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
+  export NASHRS_RUN_LABEL="Main native 0.5B pilot: $METHOD seed $SEED"
+  export NASHRS_RESULTS_NAMESPACE="$NAMESPACE"
+  export NASHRS_PROMPT_DATA="$PROMPTS"
+  export NASHRS_MAX_SAMPLES="$((STEPS * 2))"
+  export NASHRS_NUM_EPISODES=1
+  export NASHRS_ROLLOUT_BATCH_SIZE=2
+  export NASHRS_MICRO_ROLLOUT_BATCH_SIZE=1
+  export NASHRS_VLLM_GENERATE_BATCH_SIZE=2
+  export NASHRS_TRAIN_BATCH_SIZE=2
+  export NASHRS_MICRO_TRAIN_BATCH_SIZE=1
+  export NASHRS_PROMPT_MAX_LEN=128
+  export NASHRS_GENERATE_MAX_LEN=128
+  export NASHRS_ACTOR_LR=1e-6
+  export NASHRS_CRITIC_LR=1e-5
+  export NASHRS_LR_WARMUP_RATIO=0.0
+  export NASHRS_LR_SCHEDULER=constant
+  export NASHRS_SAVE_STEPS=-1
+  export NASHRS_MAX_CKPT_NUM=1
+  export NASHRS_VERIFY_PARAMETER_UPDATE=1
+  export NASHRS_RUN_FIXED_EVAL=0
+  export NASHRS_RUN_INDEPENDENT_EVAL=0
+  export NASHRS_SEED="$SEED"
+  export NASHRS_TRAIN_SEED="$SEED"
+  export NASHRS_METHOD="$METHOD"
+  export NASHRS_B1=2 NASHRS_B2=2
+  export NASHRS_PROPOSAL_BATCH_SIZE=4 NASHRS_MAX_PROPOSALS=64
+  if [[ "$METHOD" == "nash_rs" ]]; then
+    export NASHRS_AGENT_FUNC_PATH="$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py"
+  else
+    export NASHRS_AGENT_FUNC_PATH="$PBS_O_WORKDIR/examples/openrlhf/preference_ppo_agent.py"
+  fi
+  export NASHRS_PREFERENCE_COMPONENTS_JSON="$(python3 - "$CONFIG" <<'PY'
+import json, sys
+print(json.dumps(json.load(open(sys.argv[1]))["components"], separators=(",", ":")))
+PY
+)"
+  bash cluster/hopper/openrlhf_nash_rs_ppo_smoke.pbs
+else
+  export NASHRS_PREFERENCE_PYTHON="/scratch/jiancongxiao/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0/bin/python"
+  export NASHRS_PREFERENCE_SIDECAR_LOG="$RESULT_ROOT/preference_sidecar.log"
+  DRIVER=()
+  case "$METHOD" in
+    self_play|nash_md)
+      DRIVER=( -m examples.main.trl_nash_md_smoke --method "$METHOD" ) ;;
+    egpo)
+      DRIVER=( -m examples.main.egpo_official_smoke --source-root "$SOURCE_ROOT" ) ;;
+    comal)
+      DRIVER=( -m examples.main.comal_official_smoke --source-root "$SOURCE_ROOT" ) ;;
+    mpo)
+      DRIVER=( -m examples.main.mpo_native_smoke ) ;;
+  esac
+  singularity exec --nv "$IMAGE" env \
+    CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
+    HF_HOME="/scratch/jiancongxiao/cache/huggingface" \
+    HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+    TOKENIZERS_PARALLELISM=false \
+    PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$VENV/bin/python" "${DRIVER[@]}" \
+      --model "$MODEL" \
+      --prompts "$PROMPTS" \
+      --preference-config "$CONFIG" \
+      --output "$RESULT_ROOT" \
+      --steps "$STEPS" \
+      --max-new-tokens 128 \
+      --seed "$SEED"
+fi
+
+singularity exec "$IMAGE" env PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+  "$VENV/bin/python" -m examples.main.finalize_run \
+    --method "$METHOD" --run-kind pilot --steps "$STEPS" \
+    --metrics "$RESULT_ROOT/step_metrics.jsonl" \
+    --parameter-update "$RESULT_ROOT/parameter_update.json" \
+    --output "$RESULT_ROOT/run_manifest.json"
+
+echo "Main $METHOD 0.5B native pilot completed successfully"

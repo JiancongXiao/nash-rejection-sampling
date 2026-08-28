@@ -5,8 +5,18 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from nashrs.main_metrics import validate_step_records, write_smoke_manifest
-from nashrs.main_suite import MAIN_METHODS, get_main_method, validate_smoke_steps
+from nashrs.main_metrics import (
+    validate_run_step_records,
+    validate_step_records,
+    write_run_manifest,
+    write_smoke_manifest,
+)
+from nashrs.main_suite import (
+    MAIN_METHODS,
+    get_main_method,
+    validate_optimizer_steps,
+    validate_smoke_steps,
+)
 from examples.main.finalize_smoke import normalize_record
 
 
@@ -53,6 +63,12 @@ class MainSuiteTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_smoke_steps(invalid)
 
+    def test_non_smoke_step_budget_is_positive_and_unbounded(self) -> None:
+        self.assertEqual(validate_optimizer_steps(1), 1)
+        self.assertEqual(validate_optimizer_steps(400), 400)
+        with self.assertRaises(ValueError):
+            validate_optimizer_steps(0)
+
     def test_metrics_and_parameter_update_are_required(self) -> None:
         records = [
             {
@@ -85,6 +101,33 @@ class MainSuiteTest(unittest.TestCase):
                 expected_steps=2,
                 parameter_update={"changed_elements": 0, "l2_update_norm": 0.0},
             )
+
+    def test_pilot_manifest_supports_more_than_four_steps(self) -> None:
+        records = [
+            {
+                "step": step,
+                "loss": 1.0 / step,
+                "learning_rate": 1e-6,
+                "preference_model_calls": 2,
+                "generated_tokens": 10,
+                "gpu_hours": 0.001,
+            }
+            for step in range(1, 17)
+        ]
+        self.assertEqual(
+            len(validate_run_step_records(records, expected_steps=16)), 16
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = write_run_manifest(
+                Path(directory) / "run_manifest.json",
+                method="nash_rs",
+                run_kind="pilot",
+                records=records,
+                expected_steps=16,
+                parameter_update={"changed_elements": 2, "l2_update_norm": 0.01},
+            )
+        self.assertEqual(manifest["run_kind"], "pilot")
+        self.assertEqual(manifest["accounting_totals"]["generated_tokens"], 160.0)
 
 
 if __name__ == "__main__":
