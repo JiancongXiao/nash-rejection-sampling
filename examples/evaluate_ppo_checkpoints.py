@@ -44,6 +44,25 @@ def discover_models(
     return models
 
 
+def load_named_models(base_model: Path, specification: Path) -> list[tuple[str, Path]]:
+    """Load an ordered cross-method checkpoint set from a JSON object."""
+
+    values = json.loads(specification.read_text())
+    if not isinstance(values, dict) or not values:
+        raise ValueError("models JSON must be a non-empty name-to-path object")
+    models = [("base", base_model)]
+    for name, raw_path in values.items():
+        if name == "base":
+            raise ValueError("models JSON must not redefine the base model")
+        if not isinstance(name, str) or not name:
+            raise ValueError("model names must be non-empty strings")
+        path = Path(raw_path)
+        if not (path / "config.json").is_file():
+            raise ValueError(f"model checkpoint has no config.json: {path}")
+        models.append((name, path))
+    return models
+
+
 def load_prompts(path: Path) -> list[str]:
     prompts = []
     for line_number, line in enumerate(path.read_text().splitlines(), start=1):
@@ -177,7 +196,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompts", type=Path, required=True)
     parser.add_argument("--base-model", type=Path, required=True)
-    parser.add_argument("--checkpoint-root", type=Path, required=True)
+    model_group = parser.add_mutually_exclusive_group(required=True)
+    model_group.add_argument("--checkpoint-root", type=Path)
+    model_group.add_argument("--models-json", type=Path)
     parser.add_argument("--final-model", type=Path)
     oracle_group = parser.add_mutually_exclusive_group(required=True)
     oracle_group.add_argument("--preference-model")
@@ -194,6 +215,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bootstrap-samples", type=int, default=2000)
     parser.add_argument("--bootstrap-seed", type=int, default=20260825)
     parser.add_argument("--run-seed", type=int)
+    parser.add_argument("--max-prompts", type=int)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -293,11 +315,20 @@ def main() -> None:
         raise ValueError("generation lengths and batch sizes must be positive")
     started = time.perf_counter()
     prompts = load_prompts(args.prompts)
+    if args.max_prompts is not None:
+        if args.max_prompts <= 0:
+            raise ValueError("max_prompts must be positive")
+        prompts = prompts[: args.max_prompts]
     requested_steps = set(args.steps) if args.steps else None
-    models = discover_models(
-        args.base_model, args.checkpoint_root, args.final_model, requested_steps
-    )
-    if requested_steps:
+    if args.models_json:
+        if requested_steps:
+            raise ValueError("--steps cannot be combined with --models-json")
+        models = load_named_models(args.base_model, args.models_json)
+    else:
+        models = discover_models(
+            args.base_model, args.checkpoint_root, args.final_model, requested_steps
+        )
+    if requested_steps and not args.models_json:
         found_steps = {int(name.split("_", 1)[1]) for name, _ in models if name.startswith("step_")}
         missing = requested_steps - found_steps
         if missing:

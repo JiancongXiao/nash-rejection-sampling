@@ -1,0 +1,75 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N main_eval
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=04:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+MODELS_JSON="${NASHRS_MAIN_MODELS_JSON:?submit with NASHRS_MAIN_MODELS_JSON}"
+SEED="${NASHRS_SEED:-47}"
+DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
+PROMPTS="${NASHRS_EVAL_PROMPTS:-$DATA_ROOT/selection_256.jsonl}"
+MAX_PROMPTS="${NASHRS_EVAL_MAX_PROMPTS:-128}"
+OUTPUT="/scratch/jiancongxiao/results/main-native-pilot-0p5b-seed${SEED}/evaluation/${PBS_JOBID}"
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct"
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+VENV="/scratch/jiancongxiao/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_CACHE="/scratch/jiancongxiao/cache/huggingface/hub"
+mkdir -p "$OUTPUT"
+
+BASE_MODEL=""
+for candidate in "$MODEL_CACHE"/snapshots/*; do
+  if [[ -f "$candidate/config.json" ]]; then BASE_MODEL="$candidate"; break; fi
+done
+for required in "$MODELS_JSON" "$PROMPTS" "$CONFIG" "$BASE_MODEL/config.json"; do
+  if [[ ! -f "$required" ]]; then
+    echo "Missing Main evaluation input: $required" >&2
+    exit 2
+  fi
+done
+
+module load singularity
+PBS_GPU="${CUDA_VISIBLE_DEVICES:-}"
+if [[ "$PBS_GPU" == GPU-* ]]; then
+  GPU_INDEX="$(nvidia-smi --id="$PBS_GPU" --query-gpu=index --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')"
+else
+  GPU_INDEX="$PBS_GPU"
+fi
+if [[ ! "$GPU_INDEX" =~ ^[0-9]+$ ]]; then
+  echo "Could not map PBS GPU: $PBS_GPU" >&2
+  exit 3
+fi
+
+echo "Suite: Main"
+echo "Run kind: 0.5B pilot fixed evaluation"
+echo "Models: $MODELS_JSON"
+echo "Prompts: $PROMPTS (first $MAX_PROMPTS)"
+echo "Output: $OUTPUT"
+
+singularity exec --nv "$IMAGE" env \
+  CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
+  HF_HOME="/scratch/jiancongxiao/cache/huggingface" \
+  HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+  HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  TOKENIZERS_PARALLELISM=false \
+  PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+  "$VENV/bin/python" examples/evaluate_ppo_checkpoints.py \
+    --prompts "$PROMPTS" \
+    --max-prompts "$MAX_PROMPTS" \
+    --base-model "$BASE_MODEL" \
+    --models-json "$MODELS_JSON" \
+    --preference-config "$CONFIG" \
+    --max-new-tokens 512 \
+    --generation-backend vllm \
+    --bootstrap-samples 5000 \
+    --bootstrap-seed 20260828 \
+    --run-seed "$SEED" \
+    --output-dir "$OUTPUT"
+
+echo "Main 0.5B pilot fixed evaluation completed successfully: $OUTPUT/summary.json"

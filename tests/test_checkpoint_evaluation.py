@@ -15,6 +15,24 @@ SPEC.loader.exec_module(MODULE)
 
 
 class CheckpointEvaluationTest(unittest.TestCase):
+    def test_loads_ordered_cross_method_model_set(self):
+        with tempfile.TemporaryDirectory() as root_text:
+            root = Path(root_text)
+            base = root / "base"
+            reward = root / "reward"
+            nash = root / "nash"
+            for model in (base, reward, nash):
+                model.mkdir()
+                (model / "config.json").write_text("{}")
+            specification = root / "models.json"
+            specification.write_text(
+                json.dumps({"reward_ppo": str(reward), "nash_rs": str(nash)})
+            )
+            self.assertEqual(
+                MODULE.load_named_models(base, specification),
+                [("base", base), ("reward_ppo", reward), ("nash_rs", nash)],
+            )
+
     def test_discovers_checkpoints_in_step_order(self):
         with tempfile.TemporaryDirectory() as root_text:
             root = Path(root_text)

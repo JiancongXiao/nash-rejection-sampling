@@ -47,3 +47,15 @@ contract. It is still an engineering pilot, not a Main-table result. In
 particular, COMAL's paper result must use the complete multi-stage pipeline and
 its four-GPU job; the pilot only checks the scalable inner-update path before
 that pipeline is launched.
+
+Once all seven pilot jobs finish, evaluate their final actors on one fixed
+held-out prompt set. Pass the seven PBS job-number prefixes in method order:
+
+```bash
+bash cluster/hopper/main/submit_0p5b_pilot_eval.sh \
+  47 REWARD SELF NASH_MD NASH_RS MPO EGPO COMAL
+```
+
+The evaluation includes the shared base model, performs greedy generation,
+and exports the full pairwise matrix, average/worst-case win rates, empirical
+exploitability, component rewards, and 95% bootstrap confidence intervals.
