@@ -23,7 +23,7 @@ if [[ ! -x "$VENV/bin/python" ]]; then
 fi
 
 singularity exec --nv "$IMAGE" env \
-  PIP_CACHE_DIR="$CACHE" TMPDIR="$TMP" \
+  PIP_CACHE_DIR="$CACHE" PIP_CONSTRAINT=/dev/null TMPDIR="$TMP" \
   "$VENV/bin/python" -m pip install \
     --no-deps --force-reinstall \
     'accelerate==1.2.1' \
