@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import atexit
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 
 
@@ -129,12 +133,97 @@ def write_records(path: Path, records: list[dict]) -> None:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+class PreferenceSidecar:
+    """Run the shared preference oracle in a separately pinned Python stack."""
+
+    _READY_PREFIX = "NASHRS_READY\t"
+    _RESULT_PREFIX = "NASHRS_RESULT\t"
+
+    def __init__(self, component_configs: list[dict], python: str) -> None:
+        repo_root = Path(__file__).resolve().parents[2]
+        log_path = Path(
+            os.environ.get(
+                "NASHRS_PREFERENCE_SIDECAR_LOG",
+                str(repo_root / "preference_sidecar.log"),
+            )
+        )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._log = log_path.open("w")
+        self._process = subprocess.Popen(
+            [
+                python,
+                "-m",
+                "examples.main.preference_sidecar",
+                "--components-json",
+                json.dumps(component_configs, separators=(",", ":")),
+            ],
+            cwd=repo_root,
+            env=os.environ.copy(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self._log,
+            text=True,
+            bufsize=1,
+        )
+        ready = self._read(self._READY_PREFIX)
+        self.component_count = int(ready["component_count"])
+        atexit.register(self.close)
+
+    def _read(self, prefix: str):
+        assert self._process.stdout is not None
+        for line in self._process.stdout:
+            if line.startswith(prefix):
+                return json.loads(line[len(prefix) :])
+            print(f"preference sidecar: {line.rstrip()}", file=sys.stderr)
+        raise RuntimeError(
+            "preference sidecar exited before returning a response; "
+            f"see {self._log.name}"
+        )
+
+    def compare(self, prompts, left, right) -> list[float]:
+        if self._process.poll() is not None:
+            raise RuntimeError(
+                f"preference sidecar exited with {self._process.returncode}; "
+                f"see {self._log.name}"
+            )
+        assert self._process.stdin is not None
+        self._process.stdin.write(
+            json.dumps(
+                {"prompts": list(prompts), "left": list(left), "right": list(right)},
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+        self._process.stdin.flush()
+        return [float(value) for value in self._read(self._RESULT_PREFIX)]
+
+    def close(self) -> None:
+        process = getattr(self, "_process", None)
+        if process is None:
+            return
+        if process.stdin is not None and not process.stdin.closed:
+            process.stdin.close()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            process.wait(timeout=10)
+        if not self._log.closed:
+            self._log.close()
+        self._process = None
+
+
 class CountingJudgeState:
     def __init__(self, component_configs: list[dict], tokenizer) -> None:
-        from nashrs import build_preference_oracle
+        sidecar_python = os.environ.get("NASHRS_PREFERENCE_PYTHON")
+        if sidecar_python:
+            self.oracle = PreferenceSidecar(component_configs, sidecar_python)
+            self.component_count = self.oracle.component_count
+        else:
+            from nashrs import build_preference_oracle
 
-        self.oracle = build_preference_oracle(component_configs, device="cuda")
-        self.component_count = len(self.oracle.components)
+            self.oracle = build_preference_oracle(component_configs, device="cuda")
+            self.component_count = len(self.oracle.components)
         self.tokenizer = tokenizer
         self.preference_model_calls = 0
         self.generated_tokens = 0

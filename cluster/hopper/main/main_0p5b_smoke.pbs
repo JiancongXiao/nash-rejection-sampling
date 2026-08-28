@@ -70,6 +70,7 @@ if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
   # These two methods are natively implemented by the existing OpenRLHF jobs.
   export NASHRS_RUN_LABEL="Main 0.5B smoke: $METHOD"
   export NASHRS_RESULTS_NAMESPACE="main-0p5b-smoke/$METHOD"
+  export NASHRS_PROMPT_DATA="$PROMPTS"
   export NASHRS_MAX_SAMPLES="$((STEPS * 2))"
   export NASHRS_ROLLOUT_BATCH_SIZE=2
   export NASHRS_VLLM_GENERATE_BATCH_SIZE=2
@@ -93,6 +94,10 @@ PY
 )"
   bash cluster/hopper/openrlhf_nash_rs_ppo_smoke.pbs
 else
+  # Keep each method's pinned trainer dependencies while delegating the common
+  # Qwen3-containing preference oracle to the already validated modern stack.
+  export NASHRS_PREFERENCE_PYTHON="/scratch/jiancongxiao/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0/bin/python"
+  export NASHRS_PREFERENCE_SIDECAR_LOG="$RESULT_ROOT/preference_sidecar.log"
   DRIVER=()
   case "$METHOD" in
     self_play|nash_md)
