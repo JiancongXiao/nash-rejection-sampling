@@ -14,6 +14,7 @@ METHOD="${NASHRS_MAIN_METHOD:?submit with NASHRS_MAIN_METHOD}"
 SEED="${NASHRS_SEED:?submit with NASHRS_SEED}"
 PROMPT_BUDGET="${NASHRS_MAIN_PROMPT_BUDGET:-512}"
 MAX_NEW_TOKENS="${NASHRS_MAIN_GENERATE_MAX_LEN:-512}"
+TAU="${NASHRS_TAU:-1.0}"
 case "$METHOD" in
   reward_ppo|self_play|nash_md|nash_rs|mpo|egpo|comal) ;;
   *) echo "Unknown Main method: $METHOD" >&2; exit 2 ;;
@@ -22,6 +23,14 @@ if (( PROMPT_BUDGET <= 0 )); then
   echo "Prompt budget must be positive: $PROMPT_BUDGET" >&2
   exit 3
 fi
+python3 - "$TAU" <<'PY'
+import math
+import sys
+
+tau = float(sys.argv[1])
+if not math.isfinite(tau) or tau <= 0:
+    raise SystemExit(f"NASHRS_TAU must be positive and finite, got {tau!r}")
+PY
 
 # One OpenRLHF global step consumes a rollout batch of two prompts.  The TRL,
 # EGPO, and COMAL native entries consume one prompt per optimizer step.  MPO
@@ -37,7 +46,7 @@ CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
 DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
 PROMPTS="${NASHRS_MAIN_PROMPTS:-$DATA_ROOT/train_2048.jsonl}"
 SOURCE_ROOT="${NASHRS_MAIN_SOURCE_ROOT:-/scratch/jiancongxiao/external/nashrs-main}"
-NAMESPACE="main-native-0p5b-512-seed${SEED}/$METHOD"
+NAMESPACE="${NASHRS_RESULTS_NAMESPACE_OVERRIDE:-main-native-0p5b-512-seed${SEED}/$METHOD}"
 RESULT_ROOT="/scratch/jiancongxiao/results/$NAMESPACE/${PBS_JOBID}"
 MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct"
 IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
@@ -79,6 +88,7 @@ echo "Seed: $SEED"
 echo "Prompt budget: $PROMPT_BUDGET"
 echo "Expected optimizer steps: $EXPECTED_STEPS"
 echo "Maximum new tokens: $MAX_NEW_TOKENS"
+echo "Nash-RS tau: $TAU"
 echo "Prompts: $PROMPTS"
 echo "Model: $MODEL"
 echo "Result root: $RESULT_ROOT"
@@ -102,11 +112,12 @@ path.write_text(json.dumps({
     "preference_config": "$CONFIG",
     "nash_rs_b1": 2,
     "nash_rs_b2": 2,
+    "nash_rs_tau": float("$TAU"),
 }, indent=2, sort_keys=True) + "\n")
 PY
 
 if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
-  export NASHRS_RUN_LABEL="Main native 0.5B 512-prompt gate: $METHOD seed $SEED"
+  export NASHRS_RUN_LABEL="Main native 0.5B 512-prompt gate: $METHOD seed $SEED tau $TAU"
   export NASHRS_RESULTS_NAMESPACE="$NAMESPACE"
   export NASHRS_PROMPT_DATA="$PROMPTS"
   export NASHRS_MAX_SAMPLES="$PROMPT_BUDGET"
@@ -130,6 +141,7 @@ if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
   export NASHRS_SEED="$SEED"
   export NASHRS_TRAIN_SEED="$SEED"
   export NASHRS_METHOD="$METHOD"
+  export NASHRS_TAU="$TAU"
   export NASHRS_B1=2 NASHRS_B2=2
   export NASHRS_PROPOSAL_BATCH_SIZE=4 NASHRS_MAX_PROPOSALS=64
   if [[ "$METHOD" == "nash_rs" ]]; then
