@@ -204,6 +204,7 @@ class AgentExecutor(AgentExecutorBase):
             "reward": float(reward),
             "scores": min(1.0, max(0.0, self.tau * reward)),
             "extra_logs": {
+                "nashrs/tau": float(self.tau),
                 "nashrs/preference_model_calls": float(preference_calls),
                 "nashrs/preference_components": float(
                     self._preference_component_count

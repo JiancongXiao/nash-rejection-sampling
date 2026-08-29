@@ -6,10 +6,11 @@ TAUS=(0.25 0.5 1.0 2.0 4.0)
 SEED="${NASHRS_SEED:-47}"
 PROMPT_BUDGET="${NASHRS_MAIN_PROMPT_BUDGET:-512}"
 MAX_NEW_TOKENS="${NASHRS_MAIN_GENERATE_MAX_LEN:-512}"
+SWEEP_LABEL="${NASHRS_TAU_SWEEP_LABEL:-tau-sweep-v2}"
 DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
 PROMPTS="$DATA_ROOT/train_${PROMPT_BUDGET}_main_scaling_gate.jsonl"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-SUBMISSION_ROOT="/scratch/jiancongxiao/results/main-native-0p5b-tau-sweep-submissions"
+SUBMISSION_ROOT="/scratch/jiancongxiao/results/main-native-0p5b-${SWEEP_LABEL}-submissions"
 MANIFEST="$SUBMISSION_ROOT/$STAMP.tsv"
 mkdir -p "$SUBMISSION_ROOT"
 
@@ -27,7 +28,7 @@ printf 'tau\tseed\tjob_id\tprompt_budget\tmax_new_tokens\tprompt_sha256\tresult_
 
 for tau in "${TAUS[@]}"; do
   tau_slug="${tau/./p}"
-  namespace="main-native-0p5b-tau-sweep-seed${SEED}/tau_${tau_slug}"
+  namespace="main-native-0p5b-${SWEEP_LABEL}-seed${SEED}/tau_${tau_slug}"
   job_id="$(qsub \
     -N "tau_${tau_slug}" \
     -v "NASHRS_MAIN_METHOD=nash_rs,NASHRS_SEED=$SEED,NASHRS_TAU=$tau,NASHRS_MAIN_PROMPT_BUDGET=$PROMPT_BUDGET,NASHRS_MAIN_GENERATE_MAX_LEN=$MAX_NEW_TOKENS,NASHRS_MAIN_PROMPTS=$PROMPTS,NASHRS_RESULTS_NAMESPACE_OVERRIDE=$namespace" \
