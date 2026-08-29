@@ -15,12 +15,17 @@ SEED="${NASHRS_SEED:?submit with NASHRS_SEED}"
 PROMPT_BUDGET="${NASHRS_MAIN_PROMPT_BUDGET:-512}"
 MAX_NEW_TOKENS="${NASHRS_MAIN_GENERATE_MAX_LEN:-512}"
 TAU="${NASHRS_TAU:-1.0}"
+MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}"
 case "$METHOD" in
   reward_ppo|self_play|nash_md|nash_rs|mpo|egpo|comal) ;;
   *) echo "Unknown Main method: $METHOD" >&2; exit 2 ;;
 esac
 if (( PROMPT_BUDGET <= 0 )); then
   echo "Prompt budget must be positive: $PROMPT_BUDGET" >&2
+  exit 3
+fi
+if (( MAX_PROPOSALS <= 0 )); then
+  echo "NASHRS_MAX_PROPOSALS must be positive: $MAX_PROPOSALS" >&2
   exit 3
 fi
 python3 - "$TAU" <<'PY'
@@ -89,6 +94,7 @@ echo "Prompt budget: $PROMPT_BUDGET"
 echo "Expected optimizer steps: $EXPECTED_STEPS"
 echo "Maximum new tokens: $MAX_NEW_TOKENS"
 echo "Nash-RS tau: $TAU"
+echo "Nash-RS maximum proposals per accepted batch: $MAX_PROPOSALS"
 echo "Prompts: $PROMPTS"
 echo "Model: $MODEL"
 echo "Result root: $RESULT_ROOT"
@@ -113,6 +119,7 @@ path.write_text(json.dumps({
     "nash_rs_b1": 2,
     "nash_rs_b2": 2,
     "nash_rs_tau": float("$TAU"),
+    "nash_rs_max_proposals": int("$MAX_PROPOSALS"),
 }, indent=2, sort_keys=True) + "\n")
 PY
 
@@ -143,7 +150,8 @@ if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
   export NASHRS_METHOD="$METHOD"
   export NASHRS_TAU="$TAU"
   export NASHRS_B1=2 NASHRS_B2=2
-  export NASHRS_PROPOSAL_BATCH_SIZE=4 NASHRS_MAX_PROPOSALS=64
+  export NASHRS_PROPOSAL_BATCH_SIZE="${NASHRS_PROPOSAL_BATCH_SIZE:-4}"
+  export NASHRS_MAX_PROPOSALS="$MAX_PROPOSALS"
   if [[ "$METHOD" == "nash_rs" ]]; then
     export NASHRS_AGENT_FUNC_PATH="$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py"
   else
