@@ -16,7 +16,9 @@ DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
 PROMPTS="${NASHRS_EVAL_PROMPTS:-$DATA_ROOT/selection_256.jsonl}"
 MAX_PROMPTS="${NASHRS_EVAL_MAX_PROMPTS:-256}"
 MAX_NEW_TOKENS="${NASHRS_EVAL_MAX_NEW_TOKENS:-512}"
-OUTPUT="/scratch/jiancongxiao/results/main-native-0p5b-512-seed${SEED}/evaluation/${PBS_JOBID}"
+EXPECTED_MODEL_COUNT="${NASHRS_EVAL_EXPECTED_MODEL_COUNT:-7}"
+OUTPUT_NAMESPACE="${NASHRS_EVAL_RESULTS_NAMESPACE:-main-native-0p5b-512-seed${SEED}/evaluation}"
+OUTPUT="/scratch/jiancongxiao/results/$OUTPUT_NAMESPACE/${PBS_JOBID}"
 CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
 MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct"
 IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
@@ -36,8 +38,8 @@ for required in "$MODELS_JSON" "$PROMPTS" "$CONFIG" "$BASE_MODEL/config.json"; d
 done
 
 MODEL_COUNT="$(jq 'length' "$MODELS_JSON")"
-if [[ "$MODEL_COUNT" != 7 ]]; then
-  echo "Expected seven trained methods, found $MODEL_COUNT in $MODELS_JSON" >&2
+if [[ "$MODEL_COUNT" != "$EXPECTED_MODEL_COUNT" ]]; then
+  echo "Expected $EXPECTED_MODEL_COUNT trained models, found $MODEL_COUNT in $MODELS_JSON" >&2
   exit 3
 fi
 while IFS= read -r actor; do
@@ -63,6 +65,7 @@ echo "Suite: Main"
 echo "Run kind: scaling_gate_selection_eval"
 echo "Seed: $SEED"
 echo "Models: $MODELS_JSON"
+echo "Expected trained models: $EXPECTED_MODEL_COUNT"
 echo "Prompts: $PROMPTS (first $MAX_PROMPTS)"
 echo "Maximum new tokens: $MAX_NEW_TOKENS"
 echo "Output: $OUTPUT"
