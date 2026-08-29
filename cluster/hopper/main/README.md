@@ -81,3 +81,17 @@ artifacts are separated by seed and method under
 This batch is an implementation and cross-seed stability gate.  It is not a
 paper result, and the COMAL entry still exercises the official INPO inner
 update rather than the complete four-GPU multi-stage COMAL outer pipeline.
+
+After all 21 training jobs finish successfully, evaluate `base + 7 methods`
+for each seed on the fixed 256-prompt selection split:
+
+```bash
+bash cluster/hopper/main/submit_0p5b_512_evals.sh
+```
+
+The submitter reconstructs actor paths from the immutable training submission
+TSV, requires every run manifest and parameter-update check, and then launches
+three one-GPU evaluation jobs.  Each uses greedy generation, a 512-token cap,
+the same preference oracle, and 10,000 bootstrap replicates.  Selection
+results are kept under each seed's `evaluation/` directory and are not final
+test results.
