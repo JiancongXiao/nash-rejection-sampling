@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+# Batch submission is often invoked through non-interactive SSH, where the
+# Hopper PBS client is not on PATH until the site module is loaded.
+if ! command -v qsub >/dev/null 2>&1; then
+  source /etc/profile >/dev/null 2>&1 || true
+  module load pbs
+fi
+
 SEED="${1:-47}"
 if [[ "$SEED" != "47" ]]; then
   echo "The first full 3B gate is pre-registered for seed 47" >&2
