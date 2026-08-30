@@ -1,0 +1,40 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N main3b_full
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=120:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+
+METHOD="${NASHRS_MAIN_METHOD:?submit with NASHRS_MAIN_METHOD}"
+SEED="${NASHRS_SEED:-47}"
+case "$METHOD" in
+  reward_ppo|self_play|nash_md|nash_rs|mpo|egpo) ;;
+  comal)
+    echo "COMAL full Main uses cluster/hopper/main/main_3b_comal_full.pbs" >&2
+    exit 2 ;;
+  *) echo "Unknown Main method: $METHOD" >&2; exit 2 ;;
+esac
+
+export NASHRS_MAIN_RUN_KIND=full
+export NASHRS_MAIN_PROMPT_BUDGET="${NASHRS_MAIN_PROMPT_BUDGET:-2048}"
+export NASHRS_MAIN_GENERATE_MAX_LEN="${NASHRS_MAIN_GENERATE_MAX_LEN:-512}"
+export NASHRS_MAIN_PROMPTS="${NASHRS_MAIN_PROMPTS:-/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/train_2048.jsonl}"
+export NASHRS_RESULTS_NAMESPACE_OVERRIDE="${NASHRS_RESULTS_NAMESPACE_OVERRIDE:-main-native-3b-full-seed${SEED}/${METHOD}}"
+export NASHRS_POLICY_MODEL_ID="Qwen/Qwen2.5-3B-Instruct"
+export NASHRS_POLICY_MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-3B-Instruct"
+export NASHRS_TAU="${NASHRS_TAU:-0.5}"
+export NASHRS_MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}"
+
+# The two OpenRLHF methods colocate actor, critic, reference, and vLLM on one
+# H200.  These controls were validated by the 3B smoke suite and are required
+# for the 512-token full run.
+export NASHRS_VLLM_GPU_MEMORY_UTILIZATION="${NASHRS_VLLM_GPU_MEMORY_UTILIZATION:-0.30}"
+export NASHRS_VLLM_ENABLE_SLEEP=1
+export NASHRS_DEEPSPEED_ENABLE_SLEEP=1
+export NASHRS_ADAM_OFFLOAD=1
+export NASHRS_GRADIENT_CHECKPOINTING=1
+
+bash cluster/hopper/main/main_0p5b_512.pbs

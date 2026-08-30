@@ -1,0 +1,40 @@
+{
+  "suite": "main",
+  "run_kind": "full",
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "model_revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+  "methods": [
+    "reward_ppo",
+    "self_play",
+    "nash_md",
+    "nash_rs",
+    "mpo",
+    "egpo",
+    "comal"
+  ],
+  "seeds": [47],
+  "prompt_budget": 2048,
+  "prompt_max_length": 128,
+  "generation_max_length": 512,
+  "training_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/train_2048.jsonl",
+  "selection_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/selection_256.jsonl",
+  "test_data": "/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1/test_1024.jsonl",
+  "preference_config": "configs/general_preference_primary.json",
+  "nash_rs": {
+    "tau": 0.5,
+    "b1": 2,
+    "b2": 2,
+    "proposal_batch_size": 4,
+    "max_proposals": 64
+  },
+  "comal": {
+    "outer_iterations": 24,
+    "iterations_per_pbs_segment": 6,
+    "reference_update_interval": 12,
+    "num_candidates": 5,
+    "epochs_per_iteration": 3,
+    "eta": 0.002,
+    "tau_eta_ratio": 0.3333333333333333,
+    "gpus": 8
+  }
+}

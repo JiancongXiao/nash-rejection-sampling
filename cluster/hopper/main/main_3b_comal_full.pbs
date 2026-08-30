@@ -1,0 +1,233 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N comal3b_full
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=48:00:00
+#PBS -l select=1:ngpus=8
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+SEED="${NASHRS_SEED:-47}"
+ITER_START="${NASHRS_COMAL_ITER_START:?submit with NASHRS_COMAL_ITER_START}"
+NUM_ITERS="${NASHRS_COMAL_NUM_ITERS:-6}"
+PROMPT_BUDGET="${NASHRS_MAIN_PROMPT_BUDGET:-2048}"
+MAX_NEW_TOKENS="${NASHRS_MAIN_GENERATE_MAX_LEN:-512}"
+NUM_GPUS=8
+if (( ITER_START < 0 || ITER_START % 6 != 0 || NUM_ITERS != 6 || ITER_START + NUM_ITERS > 24 )); then
+  echo "COMAL segments must be six iterations starting at 0, 6, 12, or 18" >&2
+  exit 2
+fi
+
+SCRATCH="/scratch/jiancongxiao"
+RESULT_ROOT="$SCRATCH/results/main-native-3b-full-seed${SEED}/comal"
+PROMPT_ROOT="$RESULT_ROOT/prompts"
+METRICS="$RESULT_ROOT/step_metrics.jsonl"
+SOURCE_ROOT="$SCRATCH/external/nashrs-main"
+COMAL_ROOT="$SOURCE_ROOT/COMAL"
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+PROMPTS="$SCRATCH/datasets/ultrafeedback_nashrs_2k_v1/train_2048.jsonl"
+MODEL_CACHE="$SCRATCH/cache/huggingface/hub/models--Qwen--Qwen2.5-3B-Instruct"
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+MAIN_VENV="$SCRATCH/venvs/nashrs-main-native-0.1"
+OPENRLHF_VENV="$SCRATCH/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_CACHE="$SCRATCH/cache/huggingface/hub"
+TMP_ROOT="$SCRATCH/tmp/comal-3b-${PBS_JOBID%%.*}"
+CUDA_DRIVER_LIB="$SCRATCH/cuda-driver-lib"
+mkdir -p "$RESULT_ROOT" "$TMP_ROOT" "$CUDA_DRIVER_LIB" "$COMAL_ROOT/ckpts"
+
+for required in "$CONFIG" "$PROMPTS" "$MAIN_VENV/bin/python" "$OPENRLHF_VENV/bin/python" "$COMAL_ROOT/inpo.py"; do
+  if [[ ! -e "$required" ]]; then
+    echo "Missing full COMAL input: $required" >&2
+    exit 3
+  fi
+done
+MODEL=""
+for candidate in "$MODEL_CACHE"/snapshots/*; do
+  if [[ -f "$candidate/config.json" ]]; then MODEL="$candidate"; break; fi
+done
+if [[ -z "$MODEL" ]]; then
+  echo "No cached Qwen2.5-3B-Instruct snapshot" >&2
+  exit 4
+fi
+
+module load singularity
+IFS=',' read -r -a PBS_GPU_IDS <<< "${CUDA_VISIBLE_DEVICES:-}"
+if (( ${#PBS_GPU_IDS[@]} != NUM_GPUS )); then
+  echo "Expected $NUM_GPUS PBS GPUs, found ${#PBS_GPU_IDS[@]}: ${CUDA_VISIBLE_DEVICES:-<unset>}" >&2
+  exit 5
+fi
+GPU_INDICES=()
+for assigned in "${PBS_GPU_IDS[@]}"; do
+  if [[ "$assigned" == GPU-* ]]; then
+    index="$(nvidia-smi --id="$assigned" --query-gpu=index --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')"
+  else
+    index="$assigned"
+  fi
+  if [[ ! "$index" =~ ^[0-9]+$ ]]; then
+    echo "Could not map PBS GPU: $assigned" >&2
+    exit 6
+  fi
+  GPU_INDICES+=("$index")
+done
+GPU_CSV="$(IFS=,; echo "${GPU_INDICES[*]}")"
+LOCAL_GPU_IDS=(0 1 2 3 4 5 6 7)
+
+ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so"
+ln -sfn /usr/local/cuda/compat/lib/libcuda.so.1 "$CUDA_DRIVER_LIB/libcuda.so.1"
+
+echo "Suite: Main"
+echo "Run kind: full"
+echo "Method: comal"
+echo "Seed: $SEED"
+echo "COMAL iterations: $ITER_START..$((ITER_START + NUM_ITERS - 1))"
+echo "Model: $MODEL"
+echo "Prompt budget: $PROMPT_BUDGET"
+echo "Generation length: $MAX_NEW_TOKENS"
+echo "PBS GPUs: ${CUDA_VISIBLE_DEVICES:-}"
+echo "Physical GPU indices: $GPU_CSV"
+echo "Result root: $RESULT_ROOT"
+
+if [[ ! -f "$PROMPT_ROOT/manifest.json" ]]; then
+  singularity exec "$IMAGE" env \
+    PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$MAIN_VENV/bin/python" -m examples.main.comal_full_pipeline prepare-splits \
+      --prompts "$PROMPTS" --count "$PROMPT_BUDGET" --splits 6 --output "$PROMPT_ROOT"
+fi
+
+if (( ITER_START == 0 )); then
+  OLD_MODEL="$MODEL"
+else
+  OLD_MODEL="$RESULT_ROOT/iter_$((ITER_START - 1))/ckpts/model"
+fi
+if (( ITER_START < 12 )); then
+  REF_MODEL="$MODEL"
+else
+  REF_MODEL="$RESULT_ROOT/iter_11/ckpts/model"
+fi
+for required in "$OLD_MODEL/config.json" "$REF_MODEL/config.json"; do
+  if [[ ! -f "$required" ]]; then
+    echo "Missing COMAL continuation checkpoint: $required" >&2
+    exit 7
+  fi
+done
+
+for ((ITER=ITER_START; ITER<ITER_START+NUM_ITERS; ITER++)); do
+  STARTED_AT="$(date +%s)"
+  SPLIT="$((ITER % 6))"
+  ITER_ROOT="$RESULT_ROOT/iter_$ITER"
+  DATA_ROOT="$ITER_ROOT/data"
+  mkdir -p "$ITER_ROOT" "$DATA_ROOT"
+  echo "===== COMAL outer iteration $ITER, split $SPLIT ====="
+
+  singularity exec --nv "$IMAGE" env \
+    CUDA_VISIBLE_DEVICES="$GPU_CSV" \
+    TRITON_LIBCUDA_PATH="$CUDA_DRIVER_LIB" \
+    HF_HOME="$SCRATCH/cache/huggingface" HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+    TMPDIR="$TMP_ROOT" TOKENIZERS_PARALLELISM=false \
+    PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$OPENRLHF_VENV/bin/python" -m examples.main.comal_full_pipeline generate \
+      --model "$OLD_MODEL" --tokenizer "$MODEL" \
+      --prompts "$PROMPT_ROOT/train_${SPLIT}.jsonl" \
+      --output "$ITER_ROOT/candidates.jsonl" \
+      --summary "$ITER_ROOT/generation_summary.json" \
+      --num-gpus "$NUM_GPUS" --num-samples 5 \
+      --prompt-max-length 128 --max-new-tokens "$MAX_NEW_TOKENS" \
+      --temperature 0.8 --top-p 0.95 --seed "$((SEED * 1000 + ITER))"
+
+  singularity exec --nv "$IMAGE" env \
+    CUDA_VISIBLE_DEVICES="${GPU_INDICES[0]}" \
+    HF_HOME="$SCRATCH/cache/huggingface" HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+    TMPDIR="$TMP_ROOT" TOKENIZERS_PARALLELISM=false \
+    PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    NASHRS_PREFERENCE_PYTHON="$OPENRLHF_VENV/bin/python" \
+    NASHRS_PREFERENCE_SIDECAR_LOG="$ITER_ROOT/preference_sidecar.log" \
+    "$MAIN_VENV/bin/python" -m examples.main.comal_full_pipeline rank \
+      --candidates "$ITER_ROOT/candidates.jsonl" \
+      --preference-config "$CONFIG" --tokenizer "$MODEL" \
+      --output "$ITER_ROOT/pairs.jsonl" \
+      --summary "$ITER_ROOT/preference_summary.json"
+
+  singularity exec "$IMAGE" env PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$MAIN_VENV/bin/python" -m examples.main.comal_full_pipeline split-pairs \
+      --input "$ITER_ROOT/pairs.jsonl" --output "$DATA_ROOT" --validation-size 32
+
+  for split_name in train test; do
+    singularity exec --nv "$IMAGE" env \
+      CUDA_VISIBLE_DEVICES="$GPU_CSV" \
+      HF_HOME="$SCRATCH/cache/huggingface" HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+      HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+      TMPDIR="$TMP_ROOT" TOKENIZERS_PARALLELISM=false \
+      PYTHONPATH="$COMAL_ROOT:$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+      "$MAIN_VENV/bin/python" "$COMAL_ROOT/get_logprobs.py" \
+        --input_dir "$DATA_ROOT/${split_name}.jsonl" \
+        --output_dir "$DATA_ROOT/${split_name}.jsonl" \
+        --gpuids "${LOCAL_GPU_IDS[@]}" --model_type qwen \
+        --model_pt "$OLD_MODEL" --tokenizer_pt "$MODEL"
+    singularity exec --nv "$IMAGE" env \
+      CUDA_VISIBLE_DEVICES="$GPU_CSV" \
+      HF_HOME="$SCRATCH/cache/huggingface" HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+      HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+      TMPDIR="$TMP_ROOT" TOKENIZERS_PARALLELISM=false \
+      PYTHONPATH="$COMAL_ROOT:$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+      "$MAIN_VENV/bin/python" "$COMAL_ROOT/get_logprobs.py" \
+        --input_dir "$DATA_ROOT/${split_name}.jsonl" \
+        --output_dir "$DATA_ROOT/${split_name}.jsonl" \
+        --gpuids "${LOCAL_GPU_IDS[@]}" --model_type qwen --mode nash \
+        --model_pt "$REF_MODEL" --tokenizer_pt "$MODEL"
+  done
+
+  (
+    cd "$COMAL_ROOT"
+    singularity exec --nv "$IMAGE" env \
+      CUDA_VISIBLE_DEVICES="$GPU_CSV" \
+      HF_HOME="$SCRATCH/cache/huggingface" HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+      HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+      TMPDIR="$TMP_ROOT" TOKENIZERS_PARALLELISM=false \
+      PYTHONPATH="$COMAL_ROOT:$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+      "$MAIN_VENV/bin/accelerate" launch --config_file "$COMAL_ROOT/fsdp_config.yaml" \
+        --main_process_port "$((29320 + ITER))" \
+        "$PBS_O_WORKDIR/examples/main/comal_inpo_launch.py" \
+          --source-root "$SOURCE_ROOT" --dataset "$DATA_ROOT" \
+          --pretrained "$OLD_MODEL" --tokenizer "$MODEL" \
+          --output "$ITER_ROOT/ckpts" --seed "$((SEED * 1000 + ITER))" \
+          --epochs 3 --eta 0.002 --tau-eta-ratio 0.3333333333333333
+  ) 2>&1 | tee "$ITER_ROOT/inpo.log"
+
+  test -f "$ITER_ROOT/ckpts/model/config.json"
+  OLD_MODEL="$ITER_ROOT/ckpts/model"
+  if (( (ITER + 1) % 12 == 0 )); then
+    REF_MODEL="$OLD_MODEL"
+  fi
+  singularity exec "$IMAGE" env PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$MAIN_VENV/bin/python" -m examples.main.comal_full_pipeline record \
+      --iteration "$ITER" --metrics "$METRICS" \
+      --training-log "$ITER_ROOT/inpo.log" \
+      --generation-summary "$ITER_ROOT/generation_summary.json" \
+      --preference-summary "$ITER_ROOT/preference_summary.json" \
+      --started-at "$STARTED_AT" --num-gpus "$NUM_GPUS" --learning-rate 5e-7
+done
+
+if (( ITER_START + NUM_ITERS == 24 )); then
+  ln -sfn "$RESULT_ROOT/iter_23/ckpts/model" "$RESULT_ROOT/actor"
+  singularity exec "$IMAGE" env \
+    HF_HOME="$SCRATCH/cache/huggingface" HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+    "$MAIN_VENV/bin/python" -c \
+      "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('$MODEL').save_pretrained('$RESULT_ROOT/actor')"
+  singularity exec "$IMAGE" env PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$OPENRLHF_VENV/bin/python" examples/verify_checkpoint_update.py \
+      --base-model "$MODEL" --base-revision "$(basename "$MODEL")" \
+      --checkpoint "$RESULT_ROOT/actor" --output "$RESULT_ROOT/parameter_update.json"
+  singularity exec "$IMAGE" env PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$MAIN_VENV/bin/python" -m examples.main.finalize_run \
+      --method comal --run-kind full --steps 24 \
+      --metrics "$METRICS" --parameter-update "$RESULT_ROOT/parameter_update.json" \
+      --output "$RESULT_ROOT/run_manifest.json"
+fi
+
+echo "COMAL full 3B segment completed: iterations $ITER_START..$((ITER_START + NUM_ITERS - 1))"
