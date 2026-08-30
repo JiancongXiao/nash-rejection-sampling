@@ -1,0 +1,74 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N cache_qwen3b
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+VENV="/scratch/jiancongxiao/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_ROOT="/scratch/jiancongxiao/cache/huggingface"
+HF_CACHE="$HF_ROOT/hub"
+MODEL_ID="Qwen/Qwen2.5-3B-Instruct"
+MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-3B-Instruct"
+MANIFEST="/scratch/jiancongxiao/env_manifests/qwen2p5-3b-instruct.json"
+
+module load singularity
+mkdir -p "$HF_CACHE" "$(dirname "$MANIFEST")"
+
+if compgen -G "$MODEL_CACHE/snapshots/*/config.json" >/dev/null; then
+  echo "Model cache already exists: $MODEL_CACHE"
+else
+  for attempt in 1 2 3; do
+    echo "Downloading $MODEL_ID (attempt $attempt/3)"
+    if singularity exec -e "$IMAGE" env \
+      HF_HOME="$HF_ROOT" \
+      HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+      HF_HUB_DISABLE_XET=1 \
+      "$VENV/bin/python" -c \
+      "from huggingface_hub import snapshot_download; print(snapshot_download('$MODEL_ID', max_workers=2))"; then
+      break
+    fi
+    if (( attempt == 3 )); then
+      echo "Failed to cache $MODEL_ID after three attempts" >&2
+      exit 2
+    fi
+    sleep 10
+  done
+fi
+
+singularity exec -e "$IMAGE" env \
+  HF_HOME="$HF_ROOT" \
+  HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+  HF_HUB_OFFLINE=1 \
+  TRANSFORMERS_OFFLINE=1 \
+  "$VENV/bin/python" - "$MODEL_CACHE" "$MODEL_ID" "$MANIFEST" <<'PY'
+import json
+import pathlib
+import sys
+
+cache = pathlib.Path(sys.argv[1])
+model_id = sys.argv[2]
+manifest = pathlib.Path(sys.argv[3])
+snapshots = sorted(path for path in (cache / "snapshots").glob("*") if (path / "config.json").is_file())
+if not snapshots:
+    raise SystemExit(f"No complete snapshot under {cache}")
+snapshot = snapshots[-1]
+config = json.loads((snapshot / "config.json").read_text())
+manifest.write_text(json.dumps({
+    "model_id": model_id,
+    "revision": snapshot.name,
+    "snapshot": str(snapshot),
+    "architectures": config.get("architectures", []),
+    "hidden_size": config.get("hidden_size"),
+    "num_hidden_layers": config.get("num_hidden_layers"),
+}, indent=2, sort_keys=True) + "\n")
+print(manifest.read_text())
+PY
+
+echo "Qwen2.5-3B-Instruct cache completed successfully"

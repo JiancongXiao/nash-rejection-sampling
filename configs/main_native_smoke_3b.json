@@ -1,0 +1,35 @@
+{
+  "suite": "main",
+  "run_kind": "scaling_smoke",
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "methods": [
+    "reward_ppo",
+    "self_play",
+    "nash_md",
+    "nash_rs",
+    "mpo",
+    "egpo",
+    "comal"
+  ],
+  "seed": 47,
+  "optimizer_steps": {
+    "reward_ppo": 4,
+    "self_play": 2,
+    "nash_md": 2,
+    "nash_rs": 4,
+    "mpo": 2,
+    "egpo": 2,
+    "comal": 2
+  },
+  "prompt_max_length": 128,
+  "generation_max_length": 48,
+  "preference_config": "configs/general_preference_primary.json",
+  "nash_rs": {
+    "tau": 0.5,
+    "b1": 2,
+    "b2": 2,
+    "proposal_batch_size": 4,
+    "max_proposals": 64
+  },
+  "purpose": "Qwen2.5-3B one-seed method-native scaling smoke; not a paper result."
+}

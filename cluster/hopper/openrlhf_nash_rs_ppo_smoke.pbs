@@ -17,11 +17,11 @@ IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
 SCRATCH_ROOT="/scratch/jiancongxiao"
 VENV="$SCRATCH_ROOT/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
 HF_HOME_ROOT="$SCRATCH_ROOT/cache/huggingface"
-MODEL_ID="Qwen/Qwen2.5-0.5B-Instruct"
+MODEL_ID="${NASHRS_POLICY_MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}"
 PM_MODEL="OpenAssistant/reward-model-deberta-v3-large-v2"
 PM_REVISION="c355404efa9ad2ad069f3a197cae0523c14244fc"
 HF_CACHE="$SCRATCH_ROOT/cache/huggingface/hub"
-MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct"
+MODEL_CACHE="${NASHRS_POLICY_MODEL_CACHE:-$HF_CACHE/models--Qwen--Qwen2.5-0.5B-Instruct}"
 CUDA_DRIVER_LIB="$SCRATCH_ROOT/cuda-driver-lib"
 TORCH_CACHE_ROOT="$SCRATCH_ROOT/cache/torch"
 TRITON_CACHE_ROOT="$SCRATCH_ROOT/cache/triton"
@@ -61,6 +61,7 @@ VERIFY_OUTPUT="$RUN_ROOT/parameter_update.json"
 METRICS_OUTPUT="$RUN_ROOT/step_metrics.jsonl"
 METHOD_NAME="${NASHRS_METHOD:-nash_rs}"
 AGENT_FUNC_PATH="${NASHRS_AGENT_FUNC_PATH:-$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py}"
+VLLM_GPU_MEMORY_UTILIZATION="${NASHRS_VLLM_GPU_MEMORY_UTILIZATION:-0.20}"
 STAGE_LOCAL="${NASHRS_STAGE_LOCAL:-0}"
 LOCAL_STAGE_ROOT="/tmp/nashrs-train-$JOB_NUMBER"
 
@@ -179,6 +180,7 @@ echo "OpenRLHF training seed: $TRAIN_SEED"
 echo "Samples / episodes / rollout batch: $MAX_SAMPLES / $NUM_EPISODES / $ROLLOUT_BATCH_SIZE"
 echo "Prompt / generation length: $PROMPT_MAX_LEN / $GENERATE_MAX_LEN"
 echo "Nash-RS tau: ${NASHRS_TAU:-1.0}"
+echo "vLLM GPU memory utilization: $VLLM_GPU_MEMORY_UTILIZATION"
 echo "PBS CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<unset>}"
 
 PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
@@ -249,7 +251,7 @@ singularity exec --nv "$IMAGE" env \
     --vllm_num_engines 1 \
     --vllm_tensor_parallel_size 1 \
     --colocate_all_models \
-    --vllm_gpu_memory_utilization 0.20 \
+    --vllm_gpu_memory_utilization "$VLLM_GPU_MEMORY_UTILIZATION" \
     --pretrain "$MODEL" \
     --critic_pretrain "$MODEL" \
     --agent_func_path "$AGENT_FUNC_PATH" \

@@ -1,0 +1,165 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N main3b_smoke
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=04:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+METHOD="${NASHRS_MAIN_METHOD:?submit with NASHRS_MAIN_METHOD}"
+STEPS="${NASHRS_MAIN_STEPS:-2}"
+SEED="${NASHRS_SEED:-47}"
+case "$METHOD" in
+  reward_ppo|self_play|nash_md|nash_rs|mpo|egpo|comal) ;;
+  *) echo "Unknown Main method: $METHOD" >&2; exit 2 ;;
+esac
+if (( STEPS < 2 || STEPS > 4 )); then
+  echo "Main 3B smoke steps must be between 2 and 4" >&2
+  exit 3
+fi
+
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+PROMPTS="${NASHRS_MAIN_PROMPTS:-$PBS_O_WORKDIR/examples/data/ppo_pilot_prompts_32.jsonl}"
+SOURCE_ROOT="${NASHRS_MAIN_SOURCE_ROOT:-/scratch/jiancongxiao/external/nashrs-main}"
+NAMESPACE="main-native-3b-smoke-seed${SEED}/$METHOD"
+RESULT_ROOT="/scratch/jiancongxiao/results/$NAMESPACE/${PBS_JOBID}"
+MODEL_ID="Qwen/Qwen2.5-3B-Instruct"
+MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-3B-Instruct"
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+VENV="/scratch/jiancongxiao/venvs/nashrs-main-native-0.1"
+HF_CACHE="/scratch/jiancongxiao/cache/huggingface/hub"
+mkdir -p "$RESULT_ROOT"
+
+for required in "$CONFIG" "$PROMPTS" "$VENV/bin/python"; do
+  if [[ ! -e "$required" ]]; then
+    echo "Missing Main 3B smoke input: $required" >&2
+    exit 4
+  fi
+done
+MODEL=""
+for candidate in "$MODEL_CACHE"/snapshots/*; do
+  if [[ -f "$candidate/config.json" ]]; then MODEL="$candidate"; break; fi
+done
+if [[ -z "$MODEL" ]]; then
+  echo "No cached Qwen2.5-3B-Instruct snapshot" >&2
+  exit 5
+fi
+
+module load singularity
+PBS_GPU="${CUDA_VISIBLE_DEVICES:-}"
+if [[ "$PBS_GPU" == GPU-* ]]; then
+  GPU_INDEX="$(nvidia-smi --id="$PBS_GPU" --query-gpu=index --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')"
+else
+  GPU_INDEX="$PBS_GPU"
+fi
+if [[ ! "$GPU_INDEX" =~ ^[0-9]+$ ]]; then
+  echo "Could not map PBS GPU: $PBS_GPU" >&2
+  exit 6
+fi
+
+echo "Suite: Main"
+echo "Run kind: scaling_smoke"
+echo "Method: $METHOD"
+echo "Steps: $STEPS"
+echo "Seed: $SEED"
+echo "Model ID: $MODEL_ID"
+echo "Model: $MODEL"
+echo "Result root: $RESULT_ROOT"
+
+python3 - "$RESULT_ROOT/run_config.json" <<PY
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text(json.dumps({
+    "suite": "main",
+    "run_kind": "scaling_smoke",
+    "model": "$MODEL_ID",
+    "method": "$METHOD",
+    "seed": int("$SEED"),
+    "optimizer_steps": int("$STEPS"),
+    "prompt_max_length": 128,
+    "generation_max_length": 48,
+    "preference_config": "$CONFIG",
+    "nash_rs_b1": 2,
+    "nash_rs_b2": 2,
+    "nash_rs_tau": 0.5,
+}, indent=2, sort_keys=True) + "\n")
+PY
+
+if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
+  export NASHRS_RUN_LABEL="Main Qwen2.5-3B smoke: $METHOD seed $SEED"
+  export NASHRS_RESULTS_NAMESPACE="$NAMESPACE"
+  export NASHRS_POLICY_MODEL_ID="$MODEL_ID"
+  export NASHRS_POLICY_MODEL_CACHE="$MODEL_CACHE"
+  export NASHRS_PROMPT_DATA="$PROMPTS"
+  export NASHRS_MAX_SAMPLES="$((STEPS * 2))"
+  export NASHRS_ROLLOUT_BATCH_SIZE=2
+  export NASHRS_MICRO_ROLLOUT_BATCH_SIZE=1
+  export NASHRS_VLLM_GENERATE_BATCH_SIZE=2
+  export NASHRS_TRAIN_BATCH_SIZE=2
+  export NASHRS_MICRO_TRAIN_BATCH_SIZE=1
+  export NASHRS_GENERATE_MAX_LEN=48
+  export NASHRS_ACTOR_LR=1e-6
+  export NASHRS_SAVE_STEPS=-1
+  export NASHRS_MAX_CKPT_NUM=1
+  export NASHRS_VERIFY_PARAMETER_UPDATE=1
+  export NASHRS_VLLM_GPU_MEMORY_UTILIZATION=0.10
+  export NASHRS_SEED="$SEED"
+  export NASHRS_METHOD="$METHOD"
+  export NASHRS_TAU=0.5
+  if [[ "$METHOD" == "nash_rs" ]]; then
+    export NASHRS_AGENT_FUNC_PATH="$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py"
+  else
+    export NASHRS_AGENT_FUNC_PATH="$PBS_O_WORKDIR/examples/openrlhf/preference_ppo_agent.py"
+  fi
+  export NASHRS_PREFERENCE_COMPONENTS_JSON="$(python3 - "$CONFIG" <<'PY'
+import json, sys
+print(json.dumps(json.load(open(sys.argv[1]))["components"], separators=(",", ":")))
+PY
+)"
+  bash cluster/hopper/openrlhf_nash_rs_ppo_smoke.pbs
+else
+  export NASHRS_PREFERENCE_PYTHON="/scratch/jiancongxiao/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0/bin/python"
+  export NASHRS_PREFERENCE_SIDECAR_LOG="$RESULT_ROOT/preference_sidecar.log"
+  DRIVER=()
+  case "$METHOD" in
+    self_play|nash_md)
+      DRIVER=( -m examples.main.trl_nash_md_smoke --method "$METHOD" ) ;;
+    egpo)
+      DRIVER=( -m examples.main.egpo_official_smoke --source-root "$SOURCE_ROOT" ) ;;
+    comal)
+      DRIVER=( -m examples.main.comal_official_smoke --source-root "$SOURCE_ROOT" ) ;;
+    mpo)
+      DRIVER=( -m examples.main.mpo_native_smoke ) ;;
+  esac
+  singularity exec --nv "$IMAGE" env \
+    CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
+    HF_HOME="/scratch/jiancongxiao/cache/huggingface" \
+    HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+    TOKENIZERS_PARALLELISM=false \
+    PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$VENV/bin/python" "${DRIVER[@]}" \
+      --model "$MODEL" \
+      --prompts "$PROMPTS" \
+      --preference-config "$CONFIG" \
+      --output "$RESULT_ROOT" \
+      --steps "$STEPS" \
+      --max-new-tokens 48 \
+      --seed "$SEED"
+fi
+
+singularity exec "$IMAGE" env PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+  "$VENV/bin/python" -m examples.main.finalize_run \
+    --method "$METHOD" --run-kind scaling_smoke --steps "$STEPS" \
+    --metrics "$RESULT_ROOT/step_metrics.jsonl" \
+    --parameter-update "$RESULT_ROOT/parameter_update.json" \
+    --output "$RESULT_ROOT/run_manifest.json"
+
+echo "Main $METHOD Qwen2.5-3B smoke completed successfully"
