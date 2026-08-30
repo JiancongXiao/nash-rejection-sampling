@@ -62,6 +62,10 @@ METRICS_OUTPUT="$RUN_ROOT/step_metrics.jsonl"
 METHOD_NAME="${NASHRS_METHOD:-nash_rs}"
 AGENT_FUNC_PATH="${NASHRS_AGENT_FUNC_PATH:-$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py}"
 VLLM_GPU_MEMORY_UTILIZATION="${NASHRS_VLLM_GPU_MEMORY_UTILIZATION:-0.20}"
+VLLM_ENABLE_SLEEP="${NASHRS_VLLM_ENABLE_SLEEP:-0}"
+DEEPSPEED_ENABLE_SLEEP="${NASHRS_DEEPSPEED_ENABLE_SLEEP:-0}"
+ADAM_OFFLOAD="${NASHRS_ADAM_OFFLOAD:-0}"
+GRADIENT_CHECKPOINTING="${NASHRS_GRADIENT_CHECKPOINTING:-0}"
 STAGE_LOCAL="${NASHRS_STAGE_LOCAL:-0}"
 LOCAL_STAGE_ROOT="/tmp/nashrs-train-$JOB_NUMBER"
 
@@ -181,6 +185,7 @@ echo "Samples / episodes / rollout batch: $MAX_SAMPLES / $NUM_EPISODES / $ROLLOU
 echo "Prompt / generation length: $PROMPT_MAX_LEN / $GENERATE_MAX_LEN"
 echo "Nash-RS tau: ${NASHRS_TAU:-1.0}"
 echo "vLLM GPU memory utilization: $VLLM_GPU_MEMORY_UTILIZATION"
+echo "Memory controls: vllm_sleep=$VLLM_ENABLE_SLEEP deepspeed_sleep=$DEEPSPEED_ENABLE_SLEEP adam_offload=$ADAM_OFFLOAD gradient_checkpointing=$GRADIENT_CHECKPOINTING"
 echo "PBS CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<unset>}"
 
 PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
@@ -207,6 +212,12 @@ if [[ ! "$VLLM_GPU_INDEX" =~ ^[0-9]+$ ]]; then
 fi
 echo "PBS GPU index for vLLM: $VLLM_GPU_INDEX"
 
+MEMORY_ARGS=()
+if [[ "$VLLM_ENABLE_SLEEP" == "1" ]]; then MEMORY_ARGS+=(--vllm_enable_sleep); fi
+if [[ "$DEEPSPEED_ENABLE_SLEEP" == "1" ]]; then MEMORY_ARGS+=(--deepspeed_enable_sleep); fi
+if [[ "$ADAM_OFFLOAD" == "1" ]]; then MEMORY_ARGS+=(--adam_offload); fi
+if [[ "$GRADIENT_CHECKPOINTING" == "1" ]]; then MEMORY_ARGS+=(--gradient_checkpointing); fi
+
 # Preserve PBS's exact device choice while converting its UUID to the numeric
 # form required by vLLM 0.15 inside the container.
 singularity exec --nv "$IMAGE" env \
@@ -220,6 +231,7 @@ singularity exec --nv "$IMAGE" env \
   TRANSFORMERS_OFFLINE=1 \
   TORCH_HOME="$TORCH_CACHE_ROOT" \
   TRITON_CACHE_DIR="$TRITON_CACHE_ROOT" \
+  PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" \
   TMPDIR="$TMP_ROOT" \
   RAY_TMPDIR="/tmp" \
   NASHRS_RAY_TMPDIR="$RAY_ROOT" \
@@ -252,6 +264,7 @@ singularity exec --nv "$IMAGE" env \
     --vllm_tensor_parallel_size 1 \
     --colocate_all_models \
     --vllm_gpu_memory_utilization "$VLLM_GPU_MEMORY_UTILIZATION" \
+    "${MEMORY_ARGS[@]}" \
     --pretrain "$MODEL" \
     --critic_pretrain "$MODEL" \
     --agent_func_path "$AGENT_FUNC_PATH" \
