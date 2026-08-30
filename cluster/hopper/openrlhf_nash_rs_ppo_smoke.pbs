@@ -231,7 +231,6 @@ singularity exec --nv "$IMAGE" env \
   TRANSFORMERS_OFFLINE=1 \
   TORCH_HOME="$TORCH_CACHE_ROOT" \
   TRITON_CACHE_DIR="$TRITON_CACHE_ROOT" \
-  PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" \
   TMPDIR="$TMP_ROOT" \
   RAY_TMPDIR="/tmp" \
   NASHRS_RAY_TMPDIR="$RAY_ROOT" \
