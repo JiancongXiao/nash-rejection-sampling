@@ -188,7 +188,8 @@ for ((ITER=ITER_START; ITER<ITER_START+NUM_ITERS; ITER++)); do
       HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
       TMPDIR="$TMP_ROOT" TOKENIZERS_PARALLELISM=false \
       PYTHONPATH="$COMAL_ROOT:$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
-      "$MAIN_VENV/bin/python" "$COMAL_ROOT/get_logprobs.py" \
+      NASHRS_COMAL_ROOT="$COMAL_ROOT" \
+      "$MAIN_VENV/bin/python" "$PBS_O_WORKDIR/examples/main/comal_get_logprobs_compat.py" \
         --input_dir "$DATA_ROOT/${split_name}.jsonl" \
         --output_dir "$DATA_ROOT/${split_name}.jsonl" \
         --gpuids "${LOCAL_GPU_IDS[@]}" --model_type qwen \
@@ -199,7 +200,8 @@ for ((ITER=ITER_START; ITER<ITER_START+NUM_ITERS; ITER++)); do
       HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
       TMPDIR="$TMP_ROOT" TOKENIZERS_PARALLELISM=false \
       PYTHONPATH="$COMAL_ROOT:$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
-      "$MAIN_VENV/bin/python" "$COMAL_ROOT/get_logprobs.py" \
+      NASHRS_COMAL_ROOT="$COMAL_ROOT" \
+      "$MAIN_VENV/bin/python" "$PBS_O_WORKDIR/examples/main/comal_get_logprobs_compat.py" \
         --input_dir "$DATA_ROOT/${split_name}.jsonl" \
         --output_dir "$DATA_ROOT/${split_name}.jsonl" \
         --gpuids "${LOCAL_GPU_IDS[@]}" --model_type qwen --mode nash \

@@ -3,8 +3,13 @@ import json
 from pathlib import Path
 import tempfile
 import time
+from types import ModuleType
 import unittest
 
+from examples.main.comal_get_logprobs_compat import (
+    install_missing_tulu_symbols,
+    selected_model_type,
+)
 from examples.main.comal_full_pipeline import (
     prepare_splits,
     read_jsonl,
@@ -14,6 +19,23 @@ from examples.main.comal_full_pipeline import (
 
 
 class ComalFullPipelineTest(unittest.TestCase):
+    def test_qwen_compatibility_guards_only_missing_tulu_symbols(self):
+        data_utils = ModuleType("data_utils")
+        qwen_dataset = object()
+        data_utils.PreferenceBaseQwenDataset = qwen_dataset
+
+        installed = install_missing_tulu_symbols(data_utils)
+
+        self.assertEqual(
+            installed,
+            ("PreferenceBaseTuluDataset", "collate_preference_base_tulu"),
+        )
+        self.assertIs(data_utils.PreferenceBaseQwenDataset, qwen_dataset)
+        self.assertTrue(hasattr(data_utils, "PreferenceBaseTuluDataset"))
+        self.assertTrue(hasattr(data_utils, "collate_preference_base_tulu"))
+        self.assertEqual(selected_model_type([]), "qwen")
+        self.assertEqual(selected_model_type(["--model_type", "qwen"]), "qwen")
+
     def test_prompt_and_pair_splits_preserve_budget(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
