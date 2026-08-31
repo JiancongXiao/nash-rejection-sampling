@@ -2,14 +2,13 @@
 
 set -euo pipefail
 
-if ! command -v qsub >/dev/null 2>&1; then
-  # Hopper's /etc/profile can return a non-zero status in a non-interactive
-  # shell.  Temporarily suspend errexit so the module function is still made
-  # available before loading PBS.
-  set +e
-  source /etc/profile >/dev/null 2>&1
-  set -e
-  module load pbs
+QSUB="$(command -v qsub || true)"
+if [[ -z "$QSUB" ]]; then
+  QSUB="/cm/shared/apps/pbspro/current/bin/qsub"
+fi
+if [[ ! -x "$QSUB" ]]; then
+  echo "qsub is unavailable; load PBS or check $QSUB" >&2
+  exit 3
 fi
 
 MODE="${1:-smoke}"
@@ -30,7 +29,7 @@ MANIFEST="$SUBMISSION_ROOT/${MODE}-${STAMP}.tsv"
 printf 'seed\tmethod\trun_kind\tsegment\tjob_id\tngpus\tglobal_batch\n' > "$MANIFEST"
 
 if [[ "$MODE" == "smoke" ]]; then
-  job="$(qsub \
+  job="$("$QSUB" \
     -N "c3b_small_smoke" \
     -v "NASHRS_SEED=$SEED,NASHRS_COMAL_RUN_KIND=smoke,NASHRS_COMAL_ITER_START=0,NASHRS_COMAL_NUM_ITERS=1,NASHRS_MAIN_PROMPT_BUDGET=64,NASHRS_MAIN_GENERATE_MAX_LEN=128" \
     cluster/hopper/main/main_3b_comal_full.pbs)"
@@ -42,7 +41,7 @@ else
     if [[ -n "$previous" ]]; then
       dependency=( -W "depend=afterok:$previous" )
     fi
-    job="$(qsub \
+    job="$("$QSUB" \
       -N "f3b_comal_s${start}" \
       "${dependency[@]}" \
       -v "NASHRS_SEED=$SEED,NASHRS_COMAL_RUN_KIND=full,NASHRS_COMAL_ITER_START=$start,NASHRS_COMAL_NUM_ITERS=2" \
