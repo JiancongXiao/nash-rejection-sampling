@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--eta", type=float, default=0.002)
     parser.add_argument("--tau-eta-ratio", type=float, default=1.0 / 3.0)
+    parser.add_argument("--accumulate-step", type=int, default=4)
     args = parser.parse_args()
 
     comal_root = args.source_root / "COMAL"
@@ -43,7 +44,7 @@ def main() -> None:
         exp_name=args.output,
         pretrained=args.pretrained,
         batch_size=1,
-        accumulate_step=4,
+        accumulate_step=args.accumulate_step,
         model_type=args.tokenizer,
         seed=args.seed,
         max_lr=5e-7,

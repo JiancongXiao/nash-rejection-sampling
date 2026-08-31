@@ -29,12 +29,16 @@
   },
   "comal": {
     "outer_iterations": 24,
-    "iterations_per_pbs_segment": 6,
+    "iterations_per_pbs_segment": 2,
     "reference_update_interval": 12,
     "num_candidates": 5,
     "epochs_per_iteration": 3,
     "eta": 0.002,
     "tau_eta_ratio": 0.3333333333333333,
-    "gpus": 8
+    "gpus": 2,
+    "local_batch_size": 1,
+    "gradient_accumulation_steps": 16,
+    "global_batch_size": 32,
+    "pbs_queue_class": "small"
   }
 }

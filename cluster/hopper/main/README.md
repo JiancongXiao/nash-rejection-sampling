@@ -33,8 +33,24 @@ writing `smoke_manifest.json`. These smoke results are engineering validation,
 not paper results.
 
 COMAL's full Main experiment still uses its complete multi-stage official
-pipeline and needs a separate four-GPU PBS job. The one-GPU smoke only validates
+pipeline and uses two H200 GPUs with FSDP FULL_SHARD in Hopper's `small` queue.
+Gradient accumulation is increased from 4 to 16 so the official effective
+global batch size of 32 is unchanged. The one-GPU native-entry smoke only validates
 its published INPO inner update and artifact contract.
+
+Before launching all 24 full outer iterations, run the complete two-GPU pipeline
+for one isolated outer iteration:
+
+```bash
+bash cluster/hopper/main/submit_3b_comal_small.sh smoke 47
+```
+
+After its `smoke_manifest.json` verifies a real parameter update, submit the
+full chain. It is split into twelve two-iteration jobs for restartability:
+
+```bash
+bash cluster/hopper/main/submit_3b_comal_small.sh full 47
+```
 
 After all seven smokes pass, run the 16-step 0.5B native-entry pilot:
 

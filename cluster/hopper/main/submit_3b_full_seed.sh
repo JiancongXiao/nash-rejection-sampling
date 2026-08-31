@@ -47,22 +47,8 @@ for method in "${METHODS[@]}"; do
     | tee -a "$MANIFEST"
 done
 
-previous=""
-for start in 0 6 12 18; do
-  dependency=()
-  if [[ -n "$previous" ]]; then
-    dependency=( -W "depend=afterok:$previous" )
-  fi
-  job="$(qsub \
-    -N "f3b_comal_${start}" \
-    "${dependency[@]}" \
-    -v "NASHRS_SEED=$SEED,NASHRS_COMAL_ITER_START=$start,NASHRS_COMAL_NUM_ITERS=6" \
-    cluster/hopper/main/main_3b_comal_full.pbs)"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$SEED" comal "$start-$((start + 5))" "$job" "$PROMPT_BUDGET" "$MAX_NEW_TOKENS" "$PROMPT_SHA256" \
-    | tee -a "$MANIFEST"
-  previous="$job"
-done
+echo "COMAL now uses the two-GPU small-queue gate. Submit its smoke separately:" >&2
+echo "  bash cluster/hopper/main/submit_3b_comal_small.sh smoke $SEED" >&2
 
 echo "Full 3B submission manifest: $MANIFEST"
 echo "Prompt SHA256: $PROMPT_SHA256"
