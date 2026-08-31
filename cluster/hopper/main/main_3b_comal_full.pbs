@@ -1,6 +1,5 @@
 #!/bin/bash
 #PBS -P CFP05-CF-001
-#PBS -q small
 #PBS -N comal3b_full
 #PBS -j oe
 #PBS -k oed
