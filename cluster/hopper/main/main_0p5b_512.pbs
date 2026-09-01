@@ -20,6 +20,9 @@ TAU="${NASHRS_TAU:-1.0}"
 MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}"
 RUN_KIND="${NASHRS_MAIN_RUN_KIND:-scaling_gate}"
 MODEL_ID="${NASHRS_POLICY_MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}"
+LORA_RANK="${NASHRS_LORA_RANK:-0}"
+LORA_ALPHA="${NASHRS_LORA_ALPHA:-16}"
+LORA_DROPOUT="${NASHRS_LORA_DROPOUT:-0.0}"
 case "$METHOD" in
   reward_ppo|self_play|nash_md|nash_rs|mpo|egpo|comal) ;;
   *) echo "Unknown Main method: $METHOD" >&2; exit 2 ;;
@@ -42,6 +45,10 @@ if (( SEGMENT_START < 0 || SEGMENT_START >= PROMPT_BUDGET )); then
 fi
 if (( MAX_PROPOSALS <= 0 )); then
   echo "NASHRS_MAX_PROPOSALS must be positive: $MAX_PROPOSALS" >&2
+  exit 3
+fi
+if (( LORA_RANK < 0 || LORA_ALPHA <= 0 )); then
+  echo "Invalid LoRA rank/alpha: rank=$LORA_RANK alpha=$LORA_ALPHA" >&2
   exit 3
 fi
 python3 - "$TAU" <<'PY'
@@ -122,6 +129,7 @@ echo "Nash-RS tau: $TAU"
 echo "Nash-RS maximum proposals per accepted batch: $MAX_PROPOSALS"
 echo "Prompts: $PROMPTS"
 echo "Model: $MODEL"
+echo "LoRA: rank=$LORA_RANK alpha=$LORA_ALPHA dropout=$LORA_DROPOUT target=all-linear"
 echo "Result root: $RESULT_ROOT"
 
 python3 - "$SEGMENT_ROOT/run_config.json" <<PY
@@ -149,6 +157,10 @@ path.write_text(json.dumps({
     "nash_rs_b2": 2,
     "nash_rs_tau": float("$TAU"),
     "nash_rs_max_proposals": int("$MAX_PROPOSALS"),
+    "lora_rank": int("$LORA_RANK"),
+    "lora_alpha": int("$LORA_ALPHA"),
+    "lora_dropout": float("$LORA_DROPOUT"),
+    "lora_target_modules": "all-linear",
 }, indent=2, sort_keys=True) + "\n")
 PY
 
@@ -173,8 +185,8 @@ if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
   export NASHRS_CRITIC_LR=1e-5
   export NASHRS_LR_WARMUP_RATIO=0.0
   export NASHRS_LR_SCHEDULER=constant
-  export NASHRS_SAVE_STEPS="$SEGMENT_STEPS"
-  export NASHRS_MAX_CKPT_NUM=1
+  export NASHRS_SAVE_STEPS="${NASHRS_SAVE_STEPS:-$SEGMENT_STEPS}"
+  export NASHRS_MAX_CKPT_NUM="${NASHRS_MAX_CKPT_NUM:-1}"
   export NASHRS_DISABLE_DS_CKPT=0
   export NASHRS_LOAD_CHECKPOINT="$([[ "$SEGMENT_START" -gt 0 ]] && echo 1 || echo 0)"
   export NASHRS_SAVE_HF_CKPT=0
@@ -189,6 +201,9 @@ if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
   export NASHRS_SEED="$SEED"
   export NASHRS_TRAIN_SEED="$SEED"
   export NASHRS_METHOD="$METHOD"
+  export NASHRS_LORA_RANK="$LORA_RANK"
+  export NASHRS_LORA_ALPHA="$LORA_ALPHA"
+  export NASHRS_LORA_DROPOUT="$LORA_DROPOUT"
   export NASHRS_TAU="$TAU"
   export NASHRS_B1=2 NASHRS_B2=2
   export NASHRS_PROPOSAL_BATCH_SIZE="${NASHRS_PROPOSAL_BATCH_SIZE:-4}"
@@ -209,12 +224,21 @@ else
   export NASHRS_PREFERENCE_SIDECAR_LOG="$RESULT_ROOT/preference_sidecar.log"
   DRIVER=()
   RESUME_ARGS=()
+  LORA_DRIVER_ARGS=()
+  NATIVE_CHECKPOINT_STEPS="${NASHRS_NATIVE_CHECKPOINT_STEPS:-$SEGMENT_STEPS}"
   if (( SEGMENT_START > 0 )); then RESUME_ARGS+=(--resume); fi
+  if [[ "$METHOD" != "comal" ]]; then
+    LORA_DRIVER_ARGS+=(
+      --lora-rank "$LORA_RANK"
+      --lora-alpha "$LORA_ALPHA"
+      --lora-dropout "$LORA_DROPOUT"
+    )
+  fi
   case "$METHOD" in
     self_play|nash_md)
-      DRIVER=( -m examples.main.trl_nash_md_smoke --method "$METHOD" --checkpoint-steps "$SEGMENT_STEPS" ) ;;
+      DRIVER=( -m examples.main.trl_nash_md_smoke --method "$METHOD" --checkpoint-steps "$NATIVE_CHECKPOINT_STEPS" ) ;;
     egpo)
-      DRIVER=( -m examples.main.egpo_official_smoke --source-root "$SOURCE_ROOT" --checkpoint-steps "$SEGMENT_STEPS" ) ;;
+      DRIVER=( -m examples.main.egpo_official_smoke --source-root "$SOURCE_ROOT" --checkpoint-steps "$NATIVE_CHECKPOINT_STEPS" ) ;;
     comal)
       DRIVER=( -m examples.main.comal_official_smoke --source-root "$SOURCE_ROOT" ) ;;
     mpo)
@@ -234,7 +258,8 @@ else
       --output "$RESULT_ROOT" \
       --steps "$EXPECTED_STEPS" \
       --max-new-tokens "$MAX_NEW_TOKENS" \
-      --seed "$SEED"
+      --seed "$SEED" \
+      "${LORA_DRIVER_ARGS[@]}"
 fi
 
 if [[ "$SEGMENT_IS_FINAL" == "1" ]]; then

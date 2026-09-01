@@ -70,7 +70,14 @@ STAGE_LOCAL="${NASHRS_STAGE_LOCAL:-0}"
 DISABLE_DS_CKPT="${NASHRS_DISABLE_DS_CKPT:-1}"
 LOAD_CHECKPOINT="${NASHRS_LOAD_CHECKPOINT:-0}"
 SAVE_HF_CKPT="${NASHRS_SAVE_HF_CKPT:-1}"
+LORA_RANK="${NASHRS_LORA_RANK:-0}"
+LORA_ALPHA="${NASHRS_LORA_ALPHA:-16}"
+LORA_DROPOUT="${NASHRS_LORA_DROPOUT:-0.0}"
 LOCAL_STAGE_ROOT="/tmp/nashrs-train-$JOB_NUMBER"
+TRAIN_SAVE_PATH="$SAVE_PATH"
+if (( LORA_RANK > 0 )); then
+  TRAIN_SAVE_PATH="$RUN_ROOT/actor_adapter"
+fi
 
 if [[ ! -x "$VENV/bin/python" ]]; then
   echo "OpenRLHF environment is missing: $VENV" >&2
@@ -189,6 +196,7 @@ echo "Prompt / generation length: $PROMPT_MAX_LEN / $GENERATE_MAX_LEN"
 echo "Nash-RS tau: ${NASHRS_TAU:-1.0}"
 echo "vLLM GPU memory utilization: $VLLM_GPU_MEMORY_UTILIZATION"
 echo "Memory controls: vllm_sleep=$VLLM_ENABLE_SLEEP deepspeed_sleep=$DEEPSPEED_ENABLE_SLEEP adam_offload=$ADAM_OFFLOAD gradient_checkpointing=$GRADIENT_CHECKPOINTING"
+echo "LoRA: rank=$LORA_RANK alpha=$LORA_ALPHA dropout=$LORA_DROPOUT target=all-linear"
 echo "PBS CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES:-<unset>}"
 
 PBS_GPU_ASSIGNMENT="${CUDA_VISIBLE_DEVICES:-}"
@@ -274,7 +282,7 @@ singularity exec --nv "$IMAGE" env \
     --pretrain "$MODEL" \
     --critic_pretrain "$MODEL" \
     --agent_func_path "$AGENT_FUNC_PATH" \
-    --save_path "$SAVE_PATH" \
+    --save_path "$TRAIN_SAVE_PATH" \
     --ckpt_path "$CKPT_PATH" \
     "${CHECKPOINT_ARGS[@]}" \
     --micro_train_batch_size "$MICRO_TRAIN_BATCH_SIZE" \
@@ -291,6 +299,10 @@ singularity exec --nv "$IMAGE" env \
     --generate_max_len "$GENERATE_MAX_LEN" \
     --zero_stage 2 \
     --param_dtype bf16 \
+    --lora_rank "$LORA_RANK" \
+    --lora_alpha "$LORA_ALPHA" \
+    --lora_dropout "$LORA_DROPOUT" \
+    --target_modules all-linear \
     --actor_learning_rate "$ACTOR_LR" \
     --critic_learning_rate "$CRITIC_LR" \
     --lr_warmup_ratio "$LR_WARMUP_RATIO" \
@@ -304,6 +316,19 @@ singularity exec --nv "$IMAGE" env \
     --logging_steps 1 \
     --save_steps "$SAVE_STEPS" \
     --max_ckpt_num "$MAX_CKPT_NUM"
+
+if (( LORA_RANK > 0 )); then
+  singularity exec -e "$IMAGE" env \
+    HF_HOME="$HF_HOME_ROOT" \
+    HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    "$VENV/bin/python" -m openrlhf.cli.lora_combiner \
+      --model_path "$MODEL" \
+      --lora_path "$TRAIN_SAVE_PATH" \
+      --output_path "$SAVE_PATH" \
+      --param_dtype bf16
+fi
 
 singularity exec -e "$IMAGE" env \
   PYTHONPATH="$PBS_O_WORKDIR/src" \

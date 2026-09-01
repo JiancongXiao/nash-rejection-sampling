@@ -29,6 +29,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=47)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--checkpoint-steps", type=int, default=0)
+    parser.add_argument("--lora-rank", type=int, default=0)
+    parser.add_argument("--lora-alpha", type=int, default=16)
+    parser.add_argument("--lora-dropout", type=float, default=0.0)
     args = parser.parse_args()
     args.steps = validate_optimizer_steps(args.steps)
 
@@ -37,6 +40,7 @@ def main() -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
     from transformers.trainer_utils import get_last_checkpoint
     from trl import NashMDConfig, NashMDTrainer
+    from peft import LoraConfig, get_peft_model
 
     set_seed(args.seed)
     args.output.mkdir(parents=True, exist_ok=True)
@@ -47,6 +51,17 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
     )
+    if args.lora_rank > 0:
+        model = get_peft_model(
+            model,
+            LoraConfig(
+                r=args.lora_rank,
+                lora_alpha=args.lora_alpha,
+                lora_dropout=args.lora_dropout,
+                target_modules="all-linear",
+                task_type="CAUSAL_LM",
+            ),
+        )
     name, tensor = first_trainable_tensor(model)
     before = tensor.detach().float().cpu().clone()
 
@@ -98,11 +113,18 @@ def main() -> None:
             f"no Trainer checkpoint found under {args.output / 'trainer'}"
         )
     trainer.train(resume_from_checkpoint=checkpoint)
-    trainer.save_model(str(args.output / "actor"))
     update = parameter_update(before, tensor, name=name)
     (args.output / "parameter_update.json").write_text(
         json.dumps(update, indent=2, sort_keys=True) + "\n"
     )
+    if args.lora_rank > 0:
+        trainer.save_model(str(args.output / "actor_adapter"))
+        unwrapped = trainer.accelerator.unwrap_model(trainer.model)
+        merged = unwrapped.merge_and_unload()
+        merged.save_pretrained(args.output / "actor", safe_serialization=True)
+        tokenizer.save_pretrained(args.output / "actor")
+    else:
+        trainer.save_model(str(args.output / "actor"))
     print(json.dumps(update, indent=2, sort_keys=True))
 
 

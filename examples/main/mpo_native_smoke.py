@@ -35,11 +35,15 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=48)
     parser.add_argument("--seed", type=int, default=47)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--lora-rank", type=int, default=0)
+    parser.add_argument("--lora-alpha", type=int, default=16)
+    parser.add_argument("--lora-dropout", type=float, default=0.0)
     args = parser.parse_args()
     args.steps = validate_optimizer_steps(args.steps)
 
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+    from peft import LoraConfig, PeftModel, get_peft_model
 
     set_seed(args.seed)
     args.output.mkdir(parents=True, exist_ok=True)
@@ -51,18 +55,42 @@ def main() -> None:
     magnet_source = checkpoint_root / "magnet" if args.resume else args.model
     state_path = checkpoint_root / "state.pt"
     if args.resume:
-        for required in (policy_source / "config.json", magnet_source / "config.json", state_path):
+        model_marker = "adapter_config.json" if args.lora_rank > 0 else "config.json"
+        for required in (policy_source / model_marker, magnet_source / model_marker, state_path):
             if not required.exists():
                 raise FileNotFoundError(f"missing MPO resume checkpoint: {required}")
-    policy = AutoModelForCausalLM.from_pretrained(
-        policy_source, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
-    ).to("cuda")
-    magnet = AutoModelForCausalLM.from_pretrained(
-        magnet_source, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
-    ).to("cuda")
-    old_policy = AutoModelForCausalLM.from_pretrained(
-        args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
-    ).to("cuda")
+
+    lora_config = None
+    if args.lora_rank > 0:
+        lora_config = LoraConfig(
+            r=args.lora_rank,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules="all-linear",
+            task_type="CAUSAL_LM",
+        )
+
+    def load_model(adapter_source=None, *, trainable=False):
+        base = AutoModelForCausalLM.from_pretrained(
+            args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
+        )
+        if lora_config is None:
+            if adapter_source is not None:
+                base = AutoModelForCausalLM.from_pretrained(
+                    adapter_source,
+                    torch_dtype=torch.bfloat16,
+                    attn_implementation="sdpa",
+                )
+            return base.to("cuda")
+        if adapter_source is not None:
+            return PeftModel.from_pretrained(
+                base, adapter_source, is_trainable=trainable
+            ).to("cuda")
+        return get_peft_model(base, lora_config).to("cuda")
+
+    policy = load_model(policy_source if args.resume else None, trainable=True)
+    magnet = load_model(magnet_source if args.resume else None)
+    old_policy = load_model()
     magnet.eval()
     old_policy.eval()
     for reference in (magnet, old_policy):
@@ -70,7 +98,10 @@ def main() -> None:
             parameter.requires_grad_(False)
     name, tensor = first_trainable_tensor(policy)
     before = tensor.detach().float().cpu().clone()
-    optimizer = torch.optim.AdamW(policy.parameters(), lr=args.learning_rate)
+    optimizer = torch.optim.AdamW(
+        [parameter for parameter in policy.parameters() if parameter.requires_grad],
+        lr=args.learning_rate,
+    )
     completed_steps = 0
     completed_outer_rounds = 0
     resume_state = None
@@ -186,8 +217,6 @@ def main() -> None:
                 record["magnet_updated_after_outer_step"] = magnet_updated
 
     write_records(metrics_path, records)
-    policy.save_pretrained(args.output / "actor", safe_serialization=True)
-    tokenizer.save_pretrained(args.output / "actor")
     checkpoint_root.mkdir(parents=True, exist_ok=True)
     policy.save_pretrained(policy_source if args.resume else checkpoint_root / "policy", safe_serialization=True)
     magnet.save_pretrained(magnet_source if args.resume else checkpoint_root / "magnet", safe_serialization=True)
@@ -209,6 +238,13 @@ def main() -> None:
     (args.output / "parameter_update.json").write_text(
         json.dumps(update, indent=2, sort_keys=True) + "\n"
     )
+    if args.lora_rank > 0:
+        policy.save_pretrained(args.output / "actor_adapter", safe_serialization=True)
+        merged = policy.merge_and_unload()
+        merged.save_pretrained(args.output / "actor", safe_serialization=True)
+    else:
+        policy.save_pretrained(args.output / "actor", safe_serialization=True)
+    tokenizer.save_pretrained(args.output / "actor")
     print(json.dumps(update, indent=2, sort_keys=True))
 
 
