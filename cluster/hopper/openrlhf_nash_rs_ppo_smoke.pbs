@@ -302,7 +302,6 @@ singularity exec --nv "$IMAGE" env \
     --lora_rank "$LORA_RANK" \
     --lora_alpha "$LORA_ALPHA" \
     --lora_dropout "$LORA_DROPOUT" \
-    --target_modules all-linear \
     --actor_learning_rate "$ACTOR_LR" \
     --critic_learning_rate "$CRITIC_LR" \
     --lr_warmup_ratio "$LR_WARMUP_RATIO" \
