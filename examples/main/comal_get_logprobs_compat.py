@@ -54,6 +54,32 @@ def selected_model_type(argv: list[str]) -> str:
     return argv[index + 1]
 
 
+def limit_gpuids_to_dataset_rows(argv: list[str]) -> tuple[str, ...]:
+    """Avoid upstream COMAL spawning empty workers on tiny smoke splits."""
+
+    if "--input_dir" not in argv or "--gpuids" not in argv:
+        return ()
+    input_index = argv.index("--input_dir")
+    if input_index + 1 >= len(argv):
+        raise ValueError("--input_dir requires a value")
+    input_path = Path(argv[input_index + 1])
+    row_count = sum(1 for line in input_path.read_text().splitlines() if line.strip())
+    if row_count == 0:
+        raise ValueError(f"COMAL log-probability input is empty: {input_path}")
+
+    gpu_start = argv.index("--gpuids") + 1
+    gpu_end = gpu_start
+    while gpu_end < len(argv) and not argv[gpu_end].startswith("--"):
+        gpu_end += 1
+    gpuids = argv[gpu_start:gpu_end]
+    if not gpuids:
+        raise ValueError("--gpuids requires at least one GPU id")
+    keep = min(row_count, len(gpuids))
+    removed = tuple(gpuids[keep:])
+    argv[gpu_start:gpu_end] = gpuids[:keep]
+    return removed
+
+
 def main() -> None:
     comal_root = Path(os.environ["NASHRS_COMAL_ROOT"]).resolve()
     upstream = comal_root / "get_logprobs.py"
@@ -72,6 +98,13 @@ def main() -> None:
         print(
             "COMAL compatibility: guarded missing, unused Tulu symbols: "
             + ", ".join(installed),
+            file=sys.stderr,
+        )
+    removed_gpuids = limit_gpuids_to_dataset_rows(sys.argv)
+    if removed_gpuids:
+        print(
+            "COMAL compatibility: omitted idle GPU workers for a tiny split: "
+            + ", ".join(removed_gpuids),
             file=sys.stderr,
         )
     runpy.run_path(str(upstream), run_name="__main__")

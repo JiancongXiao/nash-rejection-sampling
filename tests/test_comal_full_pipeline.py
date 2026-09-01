@@ -8,6 +8,7 @@ import unittest
 
 from examples.main.comal_get_logprobs_compat import (
     install_missing_tulu_symbols,
+    limit_gpuids_to_dataset_rows,
     selected_model_type,
 )
 from examples.main.comal_full_pipeline import (
@@ -35,6 +36,30 @@ class ComalFullPipelineTest(unittest.TestCase):
         self.assertTrue(hasattr(data_utils, "collate_preference_base_tulu"))
         self.assertEqual(selected_model_type([]), "qwen")
         self.assertEqual(selected_model_type(["--model_type", "qwen"]), "qwen")
+
+    def test_logprob_workers_do_not_exceed_tiny_split_rows(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "test.jsonl"
+            data.write_text(json.dumps({"prompt": "one row"}) + "\n")
+            argv = [
+                "compat.py",
+                "--input_dir",
+                str(data),
+                "--output_dir",
+                str(data),
+                "--gpuids",
+                "0",
+                "1",
+                "--model_type",
+                "qwen",
+            ]
+
+            removed = limit_gpuids_to_dataset_rows(argv)
+
+            self.assertEqual(removed, ("1",))
+            gpu_index = argv.index("--gpuids")
+            self.assertEqual(argv[gpu_index + 1 : gpu_index + 2], ["0"])
+            self.assertEqual(argv[gpu_index + 2], "--model_type")
 
     def test_prompt_and_pair_splits_preserve_budget(self):
         with tempfile.TemporaryDirectory() as temporary:
