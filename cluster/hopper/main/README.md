@@ -52,6 +52,20 @@ full chain. It is split into twelve two-iteration jobs for restartability:
 bash cluster/hopper/main/submit_3b_comal_small.sh full 47
 ```
 
+The six completed non-COMAL 3B checkpoints can be evaluated before the COMAL
+chain finishes. The arguments are the completed PBS job numbers in method
+order; the job evaluates the shared base plus all six models on the fixed
+256-prompt selection split:
+
+```bash
+bash cluster/hopper/main/submit_3b_six_eval.sh \
+  47 REWARD SELF_PLAY NASH_MD NASH_RS MPO EGPO
+```
+
+Generation is greedy with a 512-token cap. The output contains the pairwise
+matrix, average and worst-case win rates, empirical exploitability, component
+scores, and 95% bootstrap confidence intervals.
+
 After all seven smokes pass, run the 16-step 0.5B native-entry pilot:
 
 ```bash
