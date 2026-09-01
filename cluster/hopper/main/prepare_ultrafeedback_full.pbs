@@ -39,3 +39,7 @@ singularity exec -e "$IMAGE" env \
     --output-dir "$OUTPUT_ROOT"
 
 echo "Full leakage-free UltraFeedback training prompts are ready: $OUTPUT_ROOT"
+
+if [[ "${NASHRS_AUTO_SUBMIT_TRAINING:-0}" == "1" ]]; then
+  bash cluster/hopper/main/submit_3b_ultrafeedback_full.sh 47
+fi
