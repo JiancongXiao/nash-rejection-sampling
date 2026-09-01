@@ -1,0 +1,41 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N uf_full_prep
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=04:00:00
+#PBS -l select=1:ncpus=12:mem=64GB
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+VENV="/scratch/jiancongxiao/venvs/nashrs-main-native-0.1"
+DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
+OUTPUT_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_full_v1"
+MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-3B-Instruct"
+MODEL=""
+for candidate in "$MODEL_CACHE"/snapshots/*; do
+  if [[ -f "$candidate/config.json" ]]; then MODEL="$candidate"; break; fi
+done
+if [[ -z "$MODEL" ]]; then
+  echo "No cached Qwen2.5-3B-Instruct snapshot under $MODEL_CACHE" >&2
+  exit 2
+fi
+
+module load singularity
+singularity exec -e "$IMAGE" env \
+  HF_HOME=/scratch/jiancongxiao/cache/huggingface \
+  HUGGINGFACE_HUB_CACHE=/scratch/jiancongxiao/cache/huggingface/hub \
+  HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+  "$VENV/bin/python" -m examples.prepare_ultrafeedback_full_train \
+    --revision 40b436560ca83a8dba36114c22ab3c66e43f6d5e \
+    --tokenizer "$MODEL" \
+    --selection-prompts "$DATA_ROOT/selection_256.jsonl" \
+    --test-prompts "$DATA_ROOT/test_1024.jsonl" \
+    --previous-train-prompts "$DATA_ROOT/train_2048.jsonl" \
+    --output-dir "$OUTPUT_ROOT"
+
+echo "Full leakage-free UltraFeedback training prompts are ready: $OUTPUT_ROOT"
