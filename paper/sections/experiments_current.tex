@@ -1,0 +1,388 @@
+% Current experimental section generated from frozen run artifacts on 2026-09-01.
+% Requires \usepackage{amsmath,booktabs,graphicx}.
+% The citation keys below are intentionally generic; map them to the paper's .bib.
+
+\section{Experiments}
+\label{sec:experiments}
+
+We evaluate Nash Rejection Sampling (Nash-RS) in a common online-preference
+learning pipeline and compare it with method-native implementations of six
+baselines.  This section reports every completed comparison available at the
+time of writing.  We distinguish the small-scale implementation and stability
+gate from the current main experiment, and we explicitly mark incomplete
+results.  In particular, the Qwen2.5-3B COMAL run is still queued and is not
+included in any 3B comparison.
+
+\subsection{Experimental setup}
+\label{sec:experimental-setup}
+
+\paragraph{Data.}
+We use prompts from the training split of \textsc{UltraFeedback}.  We normalize
+whitespace, remove exact duplicates by SHA-256 of the normalized prompt, and
+retain prompts whose rendered chat template contains at most 128 tokens.  A
+deterministic shuffle with seed 20260827 produces three disjoint files: 2,048
+training prompts, 256 selection prompts, and 1,024 test prompts.  The 0.5B
+stability gate uses the first 512 prompts of the frozen 2,048-prompt training
+file, whereas the 3B experiment uses all 2,048 training prompts.  Neither the
+selection nor test prompts are used for optimization.  Unless stated
+otherwise, responses are limited to 512 new tokens.
+
+\paragraph{Models and optimization.}
+The stability gate starts from \texttt{Qwen/Qwen2.5-0.5B-Instruct}; the main
+experiment starts from \texttt{Qwen/Qwen2.5-3B-Instruct} at revision
+\texttt{aa8e72537993ba99e69dfaafa59ed015b17504d1}.  All reported runs update all
+model parameters; none uses LoRA or another parameter-efficient adapter.  We
+use a policy learning rate of $10^{-6}$, except for MPO, for which the
+method-native implementation uses $5\times10^{-7}$.  OpenRLHF PPO runs use a
+critic learning rate of $10^{-5}$.  The learning-rate schedule is constant and
+has no warm-up.  Every method receives the same prompt pool, base model,
+response-length limit, preference oracle, and seed within a comparison.  The
+number of optimizer steps differs because we preserve each method's native
+update schedule: OpenRLHF PPO consumes two rollout prompts per global step,
+TRL Nash-MD and EGPO consume one prompt per step, and MPO performs two inner
+steps per outer prompt.
+
+\paragraph{General-preference oracle.}
+Training and evaluation use an equal-weight mixture of two independently
+trained scalar preference models: (i)
+\texttt{OpenAssistant/reward-model-deberta-v3-large-v2}, revision
+\texttt{c355404e}, with effective temperature 2.0609; and (ii)
+\texttt{Skywork/Skywork-Reward-V2-Qwen3-0.6B}, revision
+\texttt{d35d68a7}, with effective temperature 3.9374.  The first model scores a
+pair-encoded input and the second scores a chat-formatted input.  On a
+32-prompt diagnostic set with four responses per prompt, the two components
+disagree on 30.73\% of pairs.  The aggregate preference has no observed
+three-cycle on this small diagnostic set, but is not exactly representable by
+a single Bradley--Terry model: its logit and probability root-mean-square
+residuals are 0.00910 and 0.00202, respectively.  Consequently, the benchmark
+tests general-preference optimization even though the observed aggregate is
+close to Bradley--Terry on this diagnostic sample.
+
+\paragraph{Compared methods and implementation fidelity.}
+Table~\ref{tab:method-fidelity} records the exact entry used for each method.
+This is our \emph{Main} comparison---Nash-RS against practical,
+method-native baselines---and not the separate controlled OpenRLHF/PPO
+ablation.  Reward-PPO and Nash-RS intentionally use OpenRLHF because PPO is
+their declared practical optimizer.  The remaining methods retain their
+native update rules.
+
+\begin{table}[t]
+  \centering
+  \caption{Method-native implementations used in the current experiments.}
+  \label{tab:method-fidelity}
+  \small
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lll}
+    \toprule
+    Method & Backend & Update implemented in our experiments \\
+    \midrule
+    Reward-PPO & OpenRLHF PPO & Scalar mixture reward followed by PPO \\
+    Self-play & TRL 0.13 NashMDTrainer & Nash-MD endpoint with geometric-mixture coefficient zero \\
+    Nash-MD & TRL 0.13 NashMDTrainer & Token-level geometric-mixture Nash-MD-PG \\
+    Nash-RS & OpenRLHF PPO & Gibbs rejection sampling, implicit reward, then PPO \\
+    MPO & Safe-RLHF-based native loop & MPO Algorithm~1, ReMax, proximal and periodic magnet updates \\
+    EGPO & Authors' trainer & Online-IPO extragradient prediction/correction \\
+    COMAL & Authors' pipeline & Sampling, scoring, log-probability pipeline, and INPO inner updates \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+For Nash-RS we use $B_1=B_2=2$, proposal batches of four, and the correct
+acceptance event
+\begin{equation}
+  u \leq \exp\!\left(-\widehat g/\tau\right)
+  \quad\Longleftrightarrow\quad
+  \widehat g \leq -\tau\log u,
+\end{equation}
+where $u\sim\mathrm{Unif}[0,1]$.  The 0.5B three-seed gate uses $	au=1$;
+the 3B experiment uses $	au=0.5$, selected by the ablation in
+Section~\ref{sec:tau-ablation}.
+
+\paragraph{Evaluation.}
+We generate one greedy response from every policy on each of the 256 frozen
+selection prompts.  For methods $i$ and $j$, let
+$W_{ij}$ be their mean pairwise preference probability over prompts.  We report
+\begin{align}
+  \mathrm{AvgWin}(i) &= \frac{1}{M-1}\sum_{j\ne i} W_{ij}, \\
+  \mathrm{WorstWin}(i) &= \min_{j\ne i} W_{ij}, \\
+  \widehat{\mathrm{Exploit}}(i) &=
+    \max\{0,\tfrac12-\mathrm{WorstWin}(i)\}.
+\end{align}
+Thus, lower empirical exploitability is better.  Confidence intervals resample
+prompts with 10,000 bootstrap replicates and fixed bootstrap seed 20260829.
+The evaluation oracle is the same frozen preference mixture used for training;
+we discuss this limitation in Section~\ref{sec:exp-limitations}.
+
+\subsection{0.5B three-seed implementation and stability gate}
+\label{sec:0p5b-gate}
+
+Table~\ref{tab:0p5b-main} aggregates seeds 47, 101, and 211.  Each policy sees
+512 training prompts and each seed is evaluated on the same 256 selection
+prompts.  Reward-PPO has the highest mean average and worst-case win rates in
+this gate.  Nash-RS with the untuned value $\tau=1$ does not outperform the
+baselines on average.  This result motivated the temperature ablation below.
+Because the experiment was registered as an implementation/stability gate,
+we do not treat it as the final paper comparison.
+
+\begin{table}[t]
+  \centering
+  \caption{Qwen2.5-0.5B stability gate over three seeds.  Entries are
+  mean $\pm$ sample standard deviation across seeds.  Higher is better for
+  win rates; lower is better for exploitability.}
+  \label{tab:0p5b-main}
+  \small
+  \begin{tabular}{lccc}
+    \toprule
+    Method & Average win rate & Worst-case win rate & Exploitability \\
+    \midrule
+    Base model & $0.4968\pm0.0096$ & $0.4753\pm0.0316$ & $0.0247\pm0.0316$ \\
+    Reward-PPO & $\mathbf{0.5208\pm0.0319}$ & $\mathbf{0.5122\pm0.0289}$ & $\mathbf{0.0042\pm0.0073}$ \\
+    Self-play & $0.5020\pm0.0086$ & $0.4800\pm0.0228$ & $0.0205\pm0.0222$ \\
+    Nash-MD & $0.4958\pm0.0038$ & $0.4743\pm0.0268$ & $0.0257\pm0.0268$ \\
+    Nash-RS ($\tau=1$) & $0.4957\pm0.0086$ & $0.4738\pm0.0309$ & $0.0262\pm0.0309$ \\
+    MPO & $0.4901\pm0.0033$ & $0.4698\pm0.0260$ & $0.0302\pm0.0260$ \\
+    EGPO & $0.4993\pm0.0012$ & $0.4774\pm0.0249$ & $0.0226\pm0.0249$ \\
+    COMAL & $0.4995\pm0.0097$ & $0.4775\pm0.0318$ & $0.0225\pm0.0318$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The per-seed variability is material.  For example, Reward-PPO average win
+rates are 0.5117, 0.4945, and 0.5562 for seeds 47, 101, and 211, respectively;
+the corresponding Nash-RS values are 0.5022, 0.4989, and 0.4860.  The base
+model itself varies across generation seeds, so the across-seed summary is
+more informative than any single 0.5B run.
+
+\paragraph{Training cost.}
+Table~\ref{tab:0p5b-cost} reports allocated GPU time rather than the internal
+sample-timer field: all jobs use one H200, so GPU-hours equal PBS walltime in
+hours.  PM calls count individual component-model calls; because the oracle has
+two components, one logical pairwise query generally contributes two PM calls.
+Nash-RS uses approximately 4.1 times as many PM calls as Nash-MD and 2.4 times
+as many generated tokens, reflecting the real cost of rejection sampling with
+$B_1=B_2=2$.  Nevertheless, its end-to-end walltime is lower than Nash-MD in
+this implementation because OpenRLHF/vLLM batches generation more efficiently
+than the TRL method-native backend.
+
+\begin{table}[t]
+  \centering
+  \caption{Qwen2.5-0.5B training cost over 512 prompts.  Values are means over
+  three seeds; GPU-hours are allocated H200 walltime.}
+  \label{tab:0p5b-cost}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Method & Optimizer steps & PM calls & Generated tokens (k) & H200-hours \\
+    \midrule
+    Reward-PPO & 256 & 512 & 145.0 & 0.402 \\
+    Self-play & 512 & 1,024 & 313.3 & 2.382 \\
+    Nash-MD & 512 & 1,024 & 312.3 & 2.363 \\
+    Nash-RS & 256 & 4,193 & 753.7 & 1.366 \\
+    MPO & 1,024 & 2,048 & 476.9 & 1.708 \\
+    EGPO & 512 & 1,024 & 320.3 & 0.798 \\
+    COMAL & 512 & 1,024 & 320.8 & 1.203 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Each 0.5B evaluation makes 14,336 component PM calls.  The three evaluation
+jobs require 0.110, 0.134, and 0.126 H200-hours, respectively; evaluation cost
+is not included in Table~\ref{tab:0p5b-cost}.
+
+\subsection{Rejection-temperature ablation}
+\label{sec:tau-ablation}
+
+We retrain Nash-RS at
+$\tau\in\{0.25,0.5,0.75,1,2,4\}$ with seed 47 and the same 512-prompt and
+256-step budget.  Table~\ref{tab:tau-sweep} shows that acceptance and compute
+are strongly related, whereas policy quality is non-monotone in $\tau$.  The
+acceptance rate rises from 17.9\% at $\tau=0.25$ to 89.3\% at $\tau=4$, but
+$\tau=0.5$ has the best average win rate, worst-case win rate, and empirical
+exploitability.  We therefore use $\tau=0.5$ at 3B.  The low-temperature
+$\tau=0.25$ run uses a maximum-proposal cap of 1,024 rather than 64 so that it
+can complete the same accepted-sample budget; this change affects cost but not
+the target acceptance rule.
+
+\begin{table}[t]
+  \centering
+  \caption{Nash-RS temperature ablation at 0.5B (seed 47).  All rows use 512
+  prompts and 256 optimizer steps.}
+  \label{tab:tau-sweep}
+  \small
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{rrrrrrrr}
+    \toprule
+    $\tau$ & Acceptance & PM calls & Tokens (k) & H200-hours & Avg. win & Worst win & Exploit. \\
+    \midrule
+    0.25 & 0.179 & 12,492 & 1,513.7 & 2.851 & 0.4884 & 0.4644 & 0.0356 \\
+    0.50 & 0.415 & 5,964 & 943.5 & 1.736 & \textbf{0.5271} & \textbf{0.5122} & \textbf{0.0000} \\
+    0.75 & 0.578 & 4,568 & 790.6 & 1.421 & 0.5137 & 0.4878 & 0.0122 \\
+    1.00 & 0.665 & 4,102 & 762.3 & 1.384 & 0.4936 & 0.4702 & 0.0298 \\
+    2.00 & 0.808 & 3,560 & 720.3 & 1.309 & 0.5118 & 0.4863 & 0.0137 \\
+    4.00 & 0.893 & 3,318 & 729.8 & 1.330 & 0.5134 & 0.4872 & 0.0128 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+The 95\% prompt-bootstrap interval for the average win rate of $\tau=0.5$ is
+$[0.5138,0.5398]$.  Corresponding intervals for $\tau=0.75$, 2, and 4 are
+$[0.5001,0.5272]$, $[0.4988,0.5244]$, and $[0.5016,0.5254]$.  These intervals
+quantify prompt uncertainty for one training seed and must not be interpreted
+as across-training-seed confidence intervals.
+
+\subsection{Qwen2.5-3B main comparison}
+\label{sec:3b-main}
+
+We next train full-parameter Qwen2.5-3B policies on all 2,048 frozen training
+prompts using seed 47.  Table~\ref{tab:3b-main} reports the six completed
+methods.  Nash-RS obtains the highest average win rate (0.5286), the only
+worst-case win rate above 0.5 (0.5154), and zero empirical exploitability
+within the evaluated policy set.  Its bootstrap interval excludes 0.5 for both
+average and worst-case win rate.  Reward-PPO is second by average win rate, but
+its worst-case win rate remains below 0.5.  Because this experiment currently
+has only one training seed and lacks COMAL, we regard it as strong preliminary
+evidence rather than a final multi-seed result.
+
+\begin{table}[t]
+  \centering
+  \caption{Current Qwen2.5-3B main result on 256 selection prompts (seed 47).
+  Brackets are 95\% prompt-bootstrap intervals.}
+  \label{tab:3b-main}
+  \small
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lccc}
+    \toprule
+    Method & Average win rate & Worst-case win rate & Exploitability \\
+    \midrule
+    Base & $0.4947\ [0.4878,0.5014]$ & $0.4710\ [0.4594,0.4824]$ & $0.0290\ [0.0176,0.0406]$ \\
+    Reward-PPO & $0.5102\ [0.4994,0.5212]$ & $0.4846\ [0.4726,0.4965]$ & $0.0154\ [0.0035,0.0274]$ \\
+    Self-play & $0.4951\ [0.4884,0.5020]$ & $0.4713\ [0.4597,0.4828]$ & $0.0287\ [0.0172,0.0403]$ \\
+    Nash-MD & $0.4847\ [0.4771,0.4920]$ & $0.4623\ [0.4506,0.4738]$ & $0.0377\ [0.0262,0.0494]$ \\
+    Nash-RS & $\mathbf{0.5286\ [0.5189,0.5383]}$ & $\mathbf{0.5154\ [0.5035,0.5269]}$ & $\mathbf{0.0000\ [0.0000,0.0000]}$ \\
+    MPO & $0.4927\ [0.4850,0.5004]$ & $0.4693\ [0.4568,0.4819]$ & $0.0307\ [0.0181,0.0432]$ \\
+    EGPO & $0.4939\ [0.4870,0.5007]$ & $0.4699\ [0.4586,0.4812]$ & $0.0301\ [0.0188,0.0414]$ \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+Table~\ref{tab:3b-pairwise} gives the complete pairwise matrix.  Nash-RS beats
+every other row-wise opponent in expectation, including Reward-PPO (0.5154),
+Nash-MD (0.5377), MPO (0.5307), and EGPO (0.5301).
+
+\begin{table}[t]
+  \centering
+  \caption{Qwen2.5-3B pairwise win-probability matrix $W_{ij}$; rows are the
+  evaluated policy and columns are the opponent.}
+  \label{tab:3b-pairwise}
+  \scriptsize
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    & Base & R-PPO & Self & N-MD & N-RS & MPO & EGPO \\
+    \midrule
+    Base       & .5000 & .4869 & .4996 & .5086 & .4710 & .5017 & .5005 \\
+    Reward-PPO & .5131 & .5000 & .5130 & .5216 & .4846 & .5149 & .5141 \\
+    Self-play  & .5004 & .4870 & .5000 & .5087 & .4713 & .5022 & .5011 \\
+    Nash-MD    & .4914 & .4784 & .4913 & .5000 & .4623 & .4933 & .4918 \\
+    Nash-RS    & .5290 & .5154 & .5287 & .5377 & .5000 & .5307 & .5301 \\
+    MPO        & .4983 & .4851 & .4978 & .5067 & .4693 & .5000 & .4988 \\
+    EGPO       & .4995 & .4859 & .4989 & .5082 & .4699 & .5012 & .5000 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+The two component rewards agree with the pairwise result.  Nash-RS has mean
+OpenAssistant-DeBERTa score 1.9600 and mean Skywork-Qwen score 4.0889, compared
+with 1.8928 and 3.7165 for Reward-PPO.  The base-model scores are 1.6835 and
+3.6149.  The 95\% intervals are $[1.7011,2.2193]$ and $[3.7089,4.4777]$ for
+Nash-RS, and $[1.6344,2.1537]$ and $[3.3189,4.1108]$ for Reward-PPO.
+
+\paragraph{Training and evaluation cost.}
+Table~\ref{tab:3b-cost} reports actual one-H200 PBS walltime.  Nash-RS requires
+6.34 times as many logical component PM calls and 2.84 times as many generated
+tokens as Nash-MD.  Despite this sampling overhead, Nash-RS completes in 11.87
+H200-hours versus 13.62 for Nash-MD, again because the backends have different
+generation throughput.  This is a practical end-to-end comparison, not an
+isolated algorithmic complexity comparison.  The common seven-model 3B
+evaluation takes 0.104 H200-hours, 5,376 logical pairwise comparisons, and
+10,752 component PM calls.
+
+\begin{table}[t]
+  \centering
+  \caption{Qwen2.5-3B training cost on 2,048 prompts (seed 47).  All runs use
+  one H200; H200-hours therefore equal PBS walltime.}
+  \label{tab:3b-cost}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Method & Optimizer steps & PM calls & Generated tokens (M) & H200-hours \\
+    \midrule
+    Reward-PPO & 1,024 & 2,048 & 0.761 & 4.453 \\
+    Self-play & 2,048 & 4,096 & 1.426 & 13.528 \\
+    Nash-MD & 2,048 & 4,096 & 1.429 & 13.620 \\
+    Nash-RS & 1,024 & 25,972 & 4.052 & 11.871 \\
+    MPO & 4,096 & 8,192 & 2.104 & 10.292 \\
+    EGPO & 2,048 & 4,096 & 1.429 & 6.272 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Average generated response lengths at evaluation are 346.0 tokens for the
+base model, 372.9 for Reward-PPO, 346.2 for self-play, 346.1 for Nash-MD, 357.1
+for Nash-RS, 343.3 for MPO, and 346.2 for EGPO.  Corresponding truncation rates
+are 43.8\%, 45.3\%, 43.4\%, 43.8\%, 42.6\%, 42.6\%, and 42.2\%.  These high
+rates motivate a longer-generation sensitivity check in future experiments.
+
+\subsection{Development studies}
+\label{sec:development-studies}
+
+Before freezing the method-native comparison, we ran three checks that shaped
+the final protocol.
+
+\paragraph{Short multi-seed Nash-RS pilot.}
+A 24-step 0.5B pilot evaluated the final checkpoint against the base model on
+128 independent prompts for seeds 47, 101, and 211.  Direct win rates are
+0.5063, 0.5075, and 0.4978, giving $0.5039\pm0.0053$ across seeds.  A
+10,000-sample hierarchical bootstrap gives the 95\% interval
+$[0.4822,0.5250]$.  The mean scalar-reward improvement is
+$0.0195\pm0.0331$, with interval $[-0.0917,0.1280]$.  This pilot therefore
+verified end-to-end learning but did not establish a significant improvement.
+
+\paragraph{UltraFeedback 2K checkpoint selection.}
+In an OpenRLHF development run, checkpoint selection on 256 prompts chose
+global step 400.  On the disjoint 1,024-prompt test set, this checkpoint beats
+the base model with win probability 0.5378 and 95\% prompt-bootstrap interval
+$[0.5296,0.5462]$; its empirical exploitability within the two-policy set is
+zero.  The two mean component rewards change from 0.3936 and $-0.5720$ for the
+base model to 0.8009 and 0.0641 after training.  This experiment used the same
+preference models for optimization and evaluation and is therefore a pipeline
+validation rather than independent external validation.
+
+\paragraph{Longer general-preference pilot.}
+A 96-step learning-curve experiment on 16 validation prompts selects step 72
+by average win rate (0.5400).  On 128 independent prompts, however, average win
+rates are 0.4903, 0.4984, and 0.5113 for the base, step-72, and step-96 models,
+respectively; the corresponding 95\% intervals overlap.  This discrepancy is
+why the main protocol freezes a larger 256-prompt selection set and avoids
+claiming monotone improvement from small learning curves.
+
+\subsection{Limitations of the current evidence}
+\label{sec:exp-limitations}
+
+First, the 0.5B three-seed experiment is an implementation gate, not a final
+benchmark.  Second, the 3B comparison currently contains only one training
+seed, and COMAL is pending because its two-H200 job has not entered the queue;
+we do not impute or extrapolate its result.  Third, all reported win rates use
+the same frozen two-component preference mixture used for training.  This
+controls evaluation across methods but may reward oracle-specific
+over-optimization; independent reward models and human or public benchmark
+judges are required for the final paper.  Fourth, 3B truncation rates exceed
+42\%, so length sensitivity remains a relevant confound.  Finally, prompt
+bootstrap intervals quantify uncertainty over evaluation prompts conditional
+on a trained policy; they do not replace multi-seed uncertainty over training.
+For these reasons, the main quantitative conclusion supported by the current
+artifacts is deliberately narrow: at Qwen2.5-3B, seed 47, and the frozen
+2,048/256 train/selection protocol, Nash-RS is the strongest of the six
+completed methods under the shared general-preference oracle, while its
+rejection sampler incurs substantially more PM calls and generated tokens.
+
