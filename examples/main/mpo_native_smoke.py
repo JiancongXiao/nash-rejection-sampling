@@ -34,6 +34,7 @@ def main() -> None:
     parser.add_argument("--prox-coefficient", type=float, default=1.0)
     parser.add_argument("--max-new-tokens", type=int, default=48)
     parser.add_argument("--seed", type=int, default=47)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     args.steps = validate_optimizer_steps(args.steps)
 
@@ -45,11 +46,19 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    checkpoint_root = args.output / "trainer_checkpoint"
+    policy_source = checkpoint_root / "policy" if args.resume else args.model
+    magnet_source = checkpoint_root / "magnet" if args.resume else args.model
+    state_path = checkpoint_root / "state.pt"
+    if args.resume:
+        for required in (policy_source / "config.json", magnet_source / "config.json", state_path):
+            if not required.exists():
+                raise FileNotFoundError(f"missing MPO resume checkpoint: {required}")
     policy = AutoModelForCausalLM.from_pretrained(
-        args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
+        policy_source, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to("cuda")
     magnet = AutoModelForCausalLM.from_pretrained(
-        args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
+        magnet_source, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to("cuda")
     old_policy = AutoModelForCausalLM.from_pretrained(
         args.model, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
@@ -62,14 +71,39 @@ def main() -> None:
     name, tensor = first_trainable_tensor(policy)
     before = tensor.detach().float().cpu().clone()
     optimizer = torch.optim.AdamW(policy.parameters(), lr=args.learning_rate)
+    completed_steps = 0
+    completed_outer_rounds = 0
+    resume_state = None
+    if args.resume:
+        resume_state = torch.load(state_path, map_location="cpu", weights_only=False)
+        optimizer.load_state_dict(resume_state["optimizer"])
+        completed_steps = int(resume_state["completed_steps"])
+        completed_outer_rounds = int(resume_state["completed_outer_rounds"])
+        if completed_steps % args.inner_steps:
+            raise ValueError("MPO resume checkpoint is not on an outer-round boundary")
+        if completed_steps >= args.steps:
+            raise ValueError(
+                f"resume checkpoint already has {completed_steps} steps, target is {args.steps}"
+            )
     components = json.loads(args.preference_config.read_text())["components"]
     judge = CountingJudgeState(components, tokenizer)
     outer_rounds = (args.steps + args.inner_steps - 1) // args.inner_steps
     prompts = load_prompts(args.prompts, outer_rounds)
+    metrics_path = args.output / "step_metrics.jsonl"
     records = []
-    optimizer_step = 0
+    if args.resume and metrics_path.exists():
+        records = [
+            json.loads(line) for line in metrics_path.read_text().splitlines() if line.strip()
+        ]
+    optimizer_step = completed_steps
+    if resume_state is not None:
+        torch.set_rng_state(resume_state["torch_rng_state"])
+        if torch.cuda.is_available() and resume_state.get("cuda_rng_state_all") is not None:
+            torch.cuda.set_rng_state_all(resume_state["cuda_rng_state_all"])
 
     for outer_step, prompt in enumerate(prompts, start=1):
+        if outer_step <= completed_outer_rounds:
+            continue
         old_policy.load_state_dict(policy.state_dict())
         policy.eval()
         sampled = generate_completion(
@@ -151,9 +185,26 @@ def main() -> None:
             if record["outer_step"] == outer_step:
                 record["magnet_updated_after_outer_step"] = magnet_updated
 
-    write_records(args.output / "step_metrics.jsonl", records)
+    write_records(metrics_path, records)
     policy.save_pretrained(args.output / "actor", safe_serialization=True)
     tokenizer.save_pretrained(args.output / "actor")
+    checkpoint_root.mkdir(parents=True, exist_ok=True)
+    policy.save_pretrained(policy_source if args.resume else checkpoint_root / "policy", safe_serialization=True)
+    magnet.save_pretrained(magnet_source if args.resume else checkpoint_root / "magnet", safe_serialization=True)
+    tokenizer.save_pretrained(checkpoint_root / "policy")
+    tokenizer.save_pretrained(checkpoint_root / "magnet")
+    temporary_state = checkpoint_root / "state.pt.tmp"
+    torch.save(
+        {
+            "completed_steps": optimizer_step,
+            "completed_outer_rounds": outer_rounds,
+            "optimizer": optimizer.state_dict(),
+            "torch_rng_state": torch.get_rng_state(),
+            "cuda_rng_state_all": torch.cuda.get_rng_state_all(),
+        },
+        temporary_state,
+    )
+    temporary_state.replace(state_path)
     update = parameter_update(before, tensor, name=name)
     (args.output / "parameter_update.json").write_text(
         json.dumps(update, indent=2, sort_keys=True) + "\n"

@@ -51,14 +51,14 @@ RUN_INDEPENDENT_EVAL="${NASHRS_RUN_INDEPENDENT_EVAL:-0}"
 TEST_PROMPT_DATA="${NASHRS_TEST_PROMPT_DATA:-$PBS_O_WORKDIR/examples/data/ppo_test_prompts_128.jsonl}"
 METHOD_SEED="${NASHRS_SEED:-29}"
 TRAIN_SEED="${NASHRS_TRAIN_SEED:-$METHOD_SEED}"
-RUN_ROOT="$SCRATCH_ROOT/results/$RESULTS_NAMESPACE/${PBS_JOBID}"
+RUN_ROOT="${NASHRS_RUN_ROOT_OVERRIDE:-$SCRATCH_ROOT/results/$RESULTS_NAMESPACE/${PBS_JOBID}}"
 JOB_NUMBER="${PBS_JOBID%%.*}"
 RAY_ROOT="/tmp/nashrs-ray-$JOB_NUMBER"
 RAY_LOG_ARCHIVE="$RUN_ROOT/ray-logs"
 SAVE_PATH="$RUN_ROOT/actor"
 CKPT_PATH="$RUN_ROOT/deepspeed"
 VERIFY_OUTPUT="$RUN_ROOT/parameter_update.json"
-METRICS_OUTPUT="$RUN_ROOT/step_metrics.jsonl"
+METRICS_OUTPUT="${NASHRS_METRICS_OUTPUT_OVERRIDE:-$RUN_ROOT/step_metrics.jsonl}"
 METHOD_NAME="${NASHRS_METHOD:-nash_rs}"
 AGENT_FUNC_PATH="${NASHRS_AGENT_FUNC_PATH:-$PBS_O_WORKDIR/examples/openrlhf/nash_rs_agent.py}"
 VLLM_GPU_MEMORY_UTILIZATION="${NASHRS_VLLM_GPU_MEMORY_UTILIZATION:-0.20}"
@@ -67,6 +67,9 @@ DEEPSPEED_ENABLE_SLEEP="${NASHRS_DEEPSPEED_ENABLE_SLEEP:-0}"
 ADAM_OFFLOAD="${NASHRS_ADAM_OFFLOAD:-0}"
 GRADIENT_CHECKPOINTING="${NASHRS_GRADIENT_CHECKPOINTING:-0}"
 STAGE_LOCAL="${NASHRS_STAGE_LOCAL:-0}"
+DISABLE_DS_CKPT="${NASHRS_DISABLE_DS_CKPT:-1}"
+LOAD_CHECKPOINT="${NASHRS_LOAD_CHECKPOINT:-0}"
+SAVE_HF_CKPT="${NASHRS_SAVE_HF_CKPT:-1}"
 LOCAL_STAGE_ROOT="/tmp/nashrs-train-$JOB_NUMBER"
 
 if [[ ! -x "$VENV/bin/python" ]]; then
@@ -217,6 +220,10 @@ if [[ "$VLLM_ENABLE_SLEEP" == "1" ]]; then MEMORY_ARGS+=(--vllm_enable_sleep); f
 if [[ "$DEEPSPEED_ENABLE_SLEEP" == "1" ]]; then MEMORY_ARGS+=(--deepspeed_enable_sleep); fi
 if [[ "$ADAM_OFFLOAD" == "1" ]]; then MEMORY_ARGS+=(--adam_offload); fi
 if [[ "$GRADIENT_CHECKPOINTING" == "1" ]]; then MEMORY_ARGS+=(--gradient_checkpointing); fi
+CHECKPOINT_ARGS=()
+if [[ "$DISABLE_DS_CKPT" == "1" ]]; then CHECKPOINT_ARGS+=(--disable_ds_ckpt); fi
+if [[ "$LOAD_CHECKPOINT" == "1" ]]; then CHECKPOINT_ARGS+=(--load_checkpoint); fi
+if [[ "$SAVE_HF_CKPT" == "1" ]]; then CHECKPOINT_ARGS+=(--save_hf_ckpt); fi
 
 # Preserve PBS's exact device choice while converting its UUID to the numeric
 # form required by vLLM 0.15 inside the container.
@@ -269,8 +276,7 @@ singularity exec --nv "$IMAGE" env \
     --agent_func_path "$AGENT_FUNC_PATH" \
     --save_path "$SAVE_PATH" \
     --ckpt_path "$CKPT_PATH" \
-    --save_hf_ckpt \
-    --disable_ds_ckpt \
+    "${CHECKPOINT_ARGS[@]}" \
     --micro_train_batch_size "$MICRO_TRAIN_BATCH_SIZE" \
     --train_batch_size "$TRAIN_BATCH_SIZE" \
     --micro_rollout_batch_size "$MICRO_ROLLOUT_BATCH_SIZE" \

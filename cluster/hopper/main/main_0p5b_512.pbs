@@ -13,6 +13,8 @@ exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
 METHOD="${NASHRS_MAIN_METHOD:?submit with NASHRS_MAIN_METHOD}"
 SEED="${NASHRS_SEED:?submit with NASHRS_SEED}"
 PROMPT_BUDGET="${NASHRS_MAIN_PROMPT_BUDGET:-512}"
+SEGMENT_START="${NASHRS_SEGMENT_START:-0}"
+SEGMENT_IS_FINAL="${NASHRS_SEGMENT_IS_FINAL:-1}"
 MAX_NEW_TOKENS="${NASHRS_MAIN_GENERATE_MAX_LEN:-512}"
 TAU="${NASHRS_TAU:-1.0}"
 MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}"
@@ -32,6 +34,10 @@ if [[ "$METHOD" == "comal" && "$RUN_KIND" == "full" ]]; then
 fi
 if (( PROMPT_BUDGET <= 0 )); then
   echo "Prompt budget must be positive: $PROMPT_BUDGET" >&2
+  exit 3
+fi
+if (( SEGMENT_START < 0 || SEGMENT_START >= PROMPT_BUDGET )); then
+  echo "Invalid prompt segment [${SEGMENT_START}, ${PROMPT_BUDGET})" >&2
   exit 3
 fi
 if (( MAX_PROPOSALS <= 0 )); then
@@ -56,18 +62,24 @@ case "$METHOD" in
   mpo) EXPECTED_STEPS="$((PROMPT_BUDGET * 2))" ;;
   self_play|nash_md|egpo|comal) EXPECTED_STEPS="$PROMPT_BUDGET" ;;
 esac
+case "$METHOD" in
+  reward_ppo|nash_rs) SEGMENT_STEPS="$((((PROMPT_BUDGET + 1) / 2) - ((SEGMENT_START + 1) / 2)))" ;;
+  mpo) SEGMENT_STEPS="$(((PROMPT_BUDGET - SEGMENT_START) * 2))" ;;
+  self_play|nash_md|egpo|comal) SEGMENT_STEPS="$((PROMPT_BUDGET - SEGMENT_START))" ;;
+esac
 
 CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
 DATA_ROOT="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_2k_v1"
 PROMPTS="${NASHRS_MAIN_PROMPTS:-$DATA_ROOT/train_2048.jsonl}"
 SOURCE_ROOT="${NASHRS_MAIN_SOURCE_ROOT:-/scratch/jiancongxiao/external/nashrs-main}"
 NAMESPACE="${NASHRS_RESULTS_NAMESPACE_OVERRIDE:-main-native-0p5b-512-seed${SEED}/$METHOD}"
-RESULT_ROOT="/scratch/jiancongxiao/results/$NAMESPACE/${PBS_JOBID}"
+RESULT_ROOT="${NASHRS_RESULT_ROOT_OVERRIDE:-/scratch/jiancongxiao/results/$NAMESPACE/${PBS_JOBID}}"
+SEGMENT_ROOT="$RESULT_ROOT/segments/${PBS_JOBID}"
 MODEL_CACHE="${NASHRS_POLICY_MODEL_CACHE:-/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct}"
 IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
 VENV="/scratch/jiancongxiao/venvs/nashrs-main-native-0.1"
 HF_CACHE="/scratch/jiancongxiao/cache/huggingface/hub"
-mkdir -p "$RESULT_ROOT"
+mkdir -p "$RESULT_ROOT" "$SEGMENT_ROOT"
 
 for required in "$CONFIG" "$PROMPTS" "$VENV/bin/python"; do
   if [[ ! -e "$required" ]]; then
@@ -102,7 +114,9 @@ echo "Model ID: $MODEL_ID"
 echo "Method: $METHOD"
 echo "Seed: $SEED"
 echo "Prompt budget: $PROMPT_BUDGET"
+echo "Prompt segment: [$SEGMENT_START, $PROMPT_BUDGET)"
 echo "Expected optimizer steps: $EXPECTED_STEPS"
+echo "Optimizer steps in this segment: $SEGMENT_STEPS"
 echo "Maximum new tokens: $MAX_NEW_TOKENS"
 echo "Nash-RS tau: $TAU"
 echo "Nash-RS maximum proposals per accepted batch: $MAX_PROPOSALS"
@@ -110,7 +124,7 @@ echo "Prompts: $PROMPTS"
 echo "Model: $MODEL"
 echo "Result root: $RESULT_ROOT"
 
-python3 - "$RESULT_ROOT/run_config.json" <<PY
+python3 - "$SEGMENT_ROOT/run_config.json" <<PY
 import json
 import pathlib
 import sys
@@ -123,6 +137,9 @@ path.write_text(json.dumps({
     "method": "$METHOD",
     "seed": int("$SEED"),
     "prompt_budget": int("$PROMPT_BUDGET"),
+    "segment_start": int("$SEGMENT_START"),
+    "segment_end": int("$PROMPT_BUDGET"),
+    "segment_is_final": bool(int("$SEGMENT_IS_FINAL")),
     "expected_optimizer_steps": int("$EXPECTED_STEPS"),
     "prompt_max_length": 128,
     "generation_max_length": int("$MAX_NEW_TOKENS"),
@@ -138,6 +155,8 @@ PY
 if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
   export NASHRS_RUN_LABEL="Main native $RUN_KIND: $MODEL_ID $METHOD seed $SEED tau $TAU"
   export NASHRS_RESULTS_NAMESPACE="$NAMESPACE"
+  export NASHRS_RUN_ROOT_OVERRIDE="$RESULT_ROOT"
+  export NASHRS_METRICS_OUTPUT_OVERRIDE="$SEGMENT_ROOT/step_metrics.jsonl"
   export NASHRS_POLICY_MODEL_ID="$MODEL_ID"
   export NASHRS_POLICY_MODEL_CACHE="$MODEL_CACHE"
   export NASHRS_PROMPT_DATA="$PROMPTS"
@@ -154,9 +173,12 @@ if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
   export NASHRS_CRITIC_LR=1e-5
   export NASHRS_LR_WARMUP_RATIO=0.0
   export NASHRS_LR_SCHEDULER=constant
-  export NASHRS_SAVE_STEPS=-1
+  export NASHRS_SAVE_STEPS="$SEGMENT_STEPS"
   export NASHRS_MAX_CKPT_NUM=1
-  export NASHRS_VERIFY_PARAMETER_UPDATE=1
+  export NASHRS_DISABLE_DS_CKPT=0
+  export NASHRS_LOAD_CHECKPOINT="$([[ "$SEGMENT_START" -gt 0 ]] && echo 1 || echo 0)"
+  export NASHRS_SAVE_HF_CKPT=0
+  export NASHRS_VERIFY_PARAMETER_UPDATE="$SEGMENT_IS_FINAL"
   export NASHRS_RUN_FIXED_EVAL=0
   export NASHRS_RUN_INDEPENDENT_EVAL=0
   export NASHRS_VLLM_GPU_MEMORY_UTILIZATION="${NASHRS_VLLM_GPU_MEMORY_UTILIZATION:-0.20}"
@@ -186,11 +208,13 @@ else
   export NASHRS_PREFERENCE_PYTHON="/scratch/jiancongxiao/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0/bin/python"
   export NASHRS_PREFERENCE_SIDECAR_LOG="$RESULT_ROOT/preference_sidecar.log"
   DRIVER=()
+  RESUME_ARGS=()
+  if (( SEGMENT_START > 0 )); then RESUME_ARGS+=(--resume); fi
   case "$METHOD" in
     self_play|nash_md)
-      DRIVER=( -m examples.main.trl_nash_md_smoke --method "$METHOD" ) ;;
+      DRIVER=( -m examples.main.trl_nash_md_smoke --method "$METHOD" --checkpoint-steps "$SEGMENT_STEPS" ) ;;
     egpo)
-      DRIVER=( -m examples.main.egpo_official_smoke --source-root "$SOURCE_ROOT" ) ;;
+      DRIVER=( -m examples.main.egpo_official_smoke --source-root "$SOURCE_ROOT" --checkpoint-steps "$SEGMENT_STEPS" ) ;;
     comal)
       DRIVER=( -m examples.main.comal_official_smoke --source-root "$SOURCE_ROOT" ) ;;
     mpo)
@@ -203,7 +227,7 @@ else
     HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
     TOKENIZERS_PARALLELISM=false \
     PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
-    "$VENV/bin/python" "${DRIVER[@]}" \
+    "$VENV/bin/python" "${DRIVER[@]}" "${RESUME_ARGS[@]}" \
       --model "$MODEL" \
       --prompts "$PROMPTS" \
       --preference-config "$CONFIG" \
@@ -213,11 +237,31 @@ else
       --seed "$SEED"
 fi
 
-singularity exec "$IMAGE" env PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
-  "$VENV/bin/python" -m examples.main.finalize_run \
-    --method "$METHOD" --run-kind "$RUN_KIND" --steps "$EXPECTED_STEPS" \
-    --metrics "$RESULT_ROOT/step_metrics.jsonl" \
-    --parameter-update "$RESULT_ROOT/parameter_update.json" \
-    --output "$RESULT_ROOT/run_manifest.json"
+if [[ "$SEGMENT_IS_FINAL" == "1" ]]; then
+  if [[ "$METHOD" == "reward_ppo" || "$METHOD" == "nash_rs" ]]; then
+    python3 - "$RESULT_ROOT" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+by_step = {}
+for path in sorted((root / "segments").glob("*/step_metrics.jsonl")):
+    for line in path.read_text().splitlines():
+        if line.strip():
+            row = json.loads(line)
+            by_step[int(row["step"])] = row
+with (root / "step_metrics.jsonl").open("w") as handle:
+    for step in sorted(by_step):
+        handle.write(json.dumps(by_step[step], sort_keys=True) + "\n")
+PY
+  fi
+  singularity exec "$IMAGE" env PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+    "$VENV/bin/python" -m examples.main.finalize_run \
+      --method "$METHOD" --run-kind "$RUN_KIND" --steps "$EXPECTED_STEPS" \
+      --metrics "$RESULT_ROOT/step_metrics.jsonl" \
+      --parameter-update "$RESULT_ROOT/parameter_update.json" \
+      --output "$RESULT_ROOT/run_manifest.json"
+fi
 
 echo "Main $METHOD seed $SEED $RUN_KIND completed successfully"

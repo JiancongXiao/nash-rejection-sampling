@@ -27,12 +27,15 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=1e-6)
     parser.add_argument("--max-new-tokens", type=int, default=48)
     parser.add_argument("--seed", type=int, default=47)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--checkpoint-steps", type=int, default=0)
     args = parser.parse_args()
     args.steps = validate_optimizer_steps(args.steps)
 
     import torch
     from datasets import Dataset
     from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+    from transformers.trainer_utils import get_last_checkpoint
     from trl import NashMDConfig, NashMDTrainer
 
     set_seed(args.seed)
@@ -50,7 +53,7 @@ def main() -> None:
     config_data = json.loads(args.preference_config.read_text())
     judge = build_counting_judge(config_data["components"], tokenizer)
     metrics_path = args.output / "step_metrics.jsonl"
-    callback = build_metrics_callback(metrics_path, judge)
+    callback = build_metrics_callback(metrics_path, judge, append_existing=args.resume)
     dataset = Dataset.from_dict(
         {
             "prompt": [
@@ -72,7 +75,9 @@ def main() -> None:
         beta=0.1,
         mixture_coef=mixture_coef,
         logging_steps=1,
-        save_strategy="no",
+        save_strategy="steps" if args.checkpoint_steps > 0 else "no",
+        save_steps=max(args.checkpoint_steps, 1),
+        save_total_limit=1,
         report_to=[],
         bf16=True,
         seed=args.seed,
@@ -87,7 +92,12 @@ def main() -> None:
         processing_class=tokenizer,
         callbacks=[callback],
     )
-    trainer.train()
+    checkpoint = get_last_checkpoint(str(args.output / "trainer")) if args.resume else None
+    if args.resume and checkpoint is None:
+        raise FileNotFoundError(
+            f"no Trainer checkpoint found under {args.output / 'trainer'}"
+        )
+    trainer.train(resume_from_checkpoint=checkpoint)
     trainer.save_model(str(args.output / "actor"))
     update = parameter_update(before, tensor, name=name)
     (args.output / "parameter_update.json").write_text(

@@ -262,7 +262,7 @@ def build_counting_judge(component_configs: list[dict], tokenizer):
     return judge
 
 
-def build_metrics_callback(output: Path, judge):
+def build_metrics_callback(output: Path, judge, *, append_existing: bool = False):
     from transformers import TrainerCallback
 
     class MetricsCallback(TrainerCallback):
@@ -271,8 +271,16 @@ def build_metrics_callback(output: Path, judge):
             self.last_time = self.started
             self.last_calls = 0
             self.last_tokens = 0
-            self.last_step = 0
             self.records = []
+            if append_existing and output.exists():
+                self.records = [
+                    json.loads(line)
+                    for line in output.read_text().splitlines()
+                    if line.strip()
+                ]
+            self.last_step = max(
+                (int(record["step"]) for record in self.records), default=0
+            )
 
         def on_log(self, args, state, control, logs=None, **kwargs):
             del args, control, kwargs
