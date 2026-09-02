@@ -1,0 +1,45 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N main_l8b
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=144:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+
+METHOD="${NASHRS_MAIN_METHOD:?submit with NASHRS_MAIN_METHOD}"
+SEED="${NASHRS_SEED:-47}"
+case "$METHOD" in
+  nash_rs|nash_md|mpo|egpo) ;;
+  *) echo "Llama 8B NLHF run only supports nash_rs, nash_md, mpo, egpo" >&2; exit 2 ;;
+esac
+
+# This wrapper is deliberately additive: running Qwen jobs continue using the
+# original entrypoints and result directories.
+export NASHRS_MAIN_RUN_KIND=full
+export NASHRS_MAIN_PROMPT_BUDGET=8192
+export NASHRS_MAIN_GENERATE_MAX_LEN=512
+export NASHRS_MAIN_PROMPTS="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_full_v1/train_8192_main_7b_seed47.jsonl"
+export NASHRS_RESULTS_NAMESPACE_OVERRIDE="main-native-llama3p1-8b-lora-8192-seed${SEED}/${METHOD}"
+export NASHRS_POLICY_MODEL_ID="meta-llama/Llama-3.1-8B-Instruct"
+export NASHRS_POLICY_MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--meta-llama--Llama-3.1-8B-Instruct"
+export NASHRS_NASH_MD_MODULE="examples.main.trl_nash_md_cached"
+export NASHRS_TAU="${NASHRS_TAU:-0.5}"
+export NASHRS_MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}"
+export NASHRS_LORA_RANK=16
+export NASHRS_LORA_ALPHA=32
+export NASHRS_LORA_DROPOUT=0.05
+export NASHRS_SAVE_STEPS=512
+export NASHRS_MAX_CKPT_NUM=1
+export NASHRS_NATIVE_CHECKPOINT_STEPS=512
+
+export NASHRS_VLLM_GPU_MEMORY_UTILIZATION=0.28
+export NASHRS_VLLM_ENABLE_SLEEP=1
+export NASHRS_DEEPSPEED_ENABLE_SLEEP=1
+export NASHRS_ADAM_OFFLOAD=1
+export NASHRS_GRADIENT_CHECKPOINTING=1
+
+bash cluster/hopper/main/main_0p5b_512.pbs
+

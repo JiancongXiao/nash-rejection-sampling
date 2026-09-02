@@ -1,0 +1,73 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N cache_llama8b
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=04:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+VENV="/scratch/jiancongxiao/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+HF_ROOT="/scratch/jiancongxiao/cache/huggingface"
+HF_CACHE="$HF_ROOT/hub"
+MODEL_ID="meta-llama/Llama-3.1-8B-Instruct"
+MODEL_CACHE="$HF_CACHE/models--meta-llama--Llama-3.1-8B-Instruct"
+MANIFEST="/scratch/jiancongxiao/env_manifests/llama3p1-8b-instruct.json"
+TOKEN_PATH="${HF_TOKEN_PATH:-$HOME/.cache/huggingface/token}"
+
+module load singularity
+mkdir -p "$HF_CACHE" "$(dirname "$MANIFEST")"
+
+if ! compgen -G "$MODEL_CACHE/snapshots/*/config.json" >/dev/null; then
+  if [[ -z "${HF_TOKEN:-}" && ! -s "$TOKEN_PATH" ]]; then
+    echo "Llama 3.1 is gated. Run huggingface-cli login or export HF_TOKEN before caching." >&2
+    echo "Expected token file: $TOKEN_PATH" >&2
+    exit 2
+  fi
+  for attempt in 1 2 3; do
+    echo "Downloading gated model $MODEL_ID (attempt $attempt/3)"
+    if singularity exec -e "$IMAGE" env \
+      HF_HOME="$HF_ROOT" HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+      HF_TOKEN_PATH="$TOKEN_PATH" HF_TOKEN="${HF_TOKEN:-}" \
+      HF_HUB_DISABLE_XET=1 \
+      "$VENV/bin/python" -c \
+      "from huggingface_hub import snapshot_download; print(snapshot_download('$MODEL_ID', token=True, max_workers=2))"; then
+      break
+    fi
+    if (( attempt == 3 )); then exit 3; fi
+    sleep 10
+  done
+fi
+
+singularity exec -e "$IMAGE" env \
+  HF_HOME="$HF_ROOT" HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+  HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  "$VENV/bin/python" - "$MODEL_CACHE" "$MODEL_ID" "$MANIFEST" <<'PY'
+import json
+import pathlib
+import sys
+
+cache = pathlib.Path(sys.argv[1])
+snapshots = sorted(p for p in (cache / "snapshots").glob("*") if (p / "config.json").is_file())
+if not snapshots:
+    raise SystemExit(f"No complete snapshot under {cache}")
+snapshot = snapshots[-1]
+config = json.loads((snapshot / "config.json").read_text())
+path = pathlib.Path(sys.argv[3])
+path.write_text(json.dumps({
+    "model_id": sys.argv[2],
+    "revision": snapshot.name,
+    "snapshot": str(snapshot),
+    "architectures": config.get("architectures", []),
+    "hidden_size": config.get("hidden_size"),
+    "num_hidden_layers": config.get("num_hidden_layers"),
+}, indent=2, sort_keys=True) + "\n")
+print(path.read_text())
+PY
+
+echo "Llama-3.1-8B-Instruct cache completed successfully"
+

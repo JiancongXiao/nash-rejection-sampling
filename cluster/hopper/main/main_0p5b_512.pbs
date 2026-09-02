@@ -236,13 +236,14 @@ else
   fi
   case "$METHOD" in
     self_play|nash_md)
-      DRIVER=( -m examples.main.trl_nash_md_smoke --method "$METHOD" --checkpoint-steps "$NATIVE_CHECKPOINT_STEPS" ) ;;
+      NASH_MD_MODULE="${NASHRS_NASH_MD_MODULE:-examples.main.trl_nash_md_smoke}"
+      DRIVER=( -m "$NASH_MD_MODULE" --method "$METHOD" --checkpoint-steps "$NATIVE_CHECKPOINT_STEPS" ) ;;
     egpo)
       DRIVER=( -m examples.main.egpo_official_smoke --source-root "$SOURCE_ROOT" --checkpoint-steps "$NATIVE_CHECKPOINT_STEPS" ) ;;
     comal)
       DRIVER=( -m examples.main.comal_official_smoke --source-root "$SOURCE_ROOT" ) ;;
     mpo)
-      DRIVER=( -m examples.main.mpo_native_smoke ) ;;
+      DRIVER=( -m examples.main.mpo_native_smoke --checkpoint-steps "$NATIVE_CHECKPOINT_STEPS" ) ;;
   esac
   singularity exec --nv "$IMAGE" env \
     CUDA_VISIBLE_DEVICES="$GPU_INDEX" \

@@ -15,7 +15,6 @@ from examples.main.smoke_common import (
     parameter_update,
     sequence_logprob,
     trajectory_forward_kl,
-    write_records,
 )
 from nashrs.main_suite import validate_optimizer_steps
 
@@ -35,6 +34,7 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=48)
     parser.add_argument("--seed", type=int, default=47)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--checkpoint-steps", type=int, default=0)
     parser.add_argument("--lora-rank", type=int, default=0)
     parser.add_argument("--lora-alpha", type=int, default=16)
     parser.add_argument("--lora-dropout", type=float, default=0.0)
@@ -126,15 +126,48 @@ def main() -> None:
         records = [
             json.loads(line) for line in metrics_path.read_text().splitlines() if line.strip()
         ]
+    elif metrics_path.exists():
+        metrics_path.unlink()
+    written_records = len(records)
     optimizer_step = completed_steps
     if resume_state is not None:
         torch.set_rng_state(resume_state["torch_rng_state"])
         if torch.cuda.is_available() and resume_state.get("cuda_rng_state_all") is not None:
             torch.cuda.set_rng_state_all(resume_state["cuda_rng_state_all"])
 
+    def flush_records() -> None:
+        nonlocal written_records
+        if written_records == len(records):
+            return
+        with metrics_path.open("a") as handle:
+            for record in records[written_records:]:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+        written_records = len(records)
+
+    def save_checkpoint(completed_outer_step: int) -> None:
+        flush_records()
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        policy.save_pretrained(checkpoint_root / "policy", safe_serialization=True)
+        magnet.save_pretrained(checkpoint_root / "magnet", safe_serialization=True)
+        tokenizer.save_pretrained(checkpoint_root / "policy")
+        tokenizer.save_pretrained(checkpoint_root / "magnet")
+        temporary_state = checkpoint_root / "state.pt.tmp"
+        torch.save(
+            {
+                "completed_steps": optimizer_step,
+                "completed_outer_rounds": completed_outer_step,
+                "optimizer": optimizer.state_dict(),
+                "torch_rng_state": torch.get_rng_state(),
+                "cuda_rng_state_all": torch.cuda.get_rng_state_all(),
+            },
+            temporary_state,
+        )
+        temporary_state.replace(state_path)
+
     for outer_step, prompt in enumerate(prompts, start=1):
         if outer_step <= completed_outer_rounds:
             continue
+        outer_started = time.perf_counter()
         old_policy.load_state_dict(policy.state_dict())
         policy.eval()
         sampled = generate_completion(
@@ -158,7 +191,7 @@ def main() -> None:
         for inner_step in range(1, args.inner_steps + 1):
             if optimizer_step >= args.steps:
                 break
-            started = time.perf_counter()
+            started = outer_started if inner_step == 1 else time.perf_counter()
             policy.train()
             policy_logp = sequence_logprob(
                 policy, sampled["full_ids"], len(sampled["prompt_ids"])
@@ -215,25 +248,14 @@ def main() -> None:
         for record in records[-min(args.inner_steps, len(records)) :]:
             if record["outer_step"] == outer_step:
                 record["magnet_updated_after_outer_step"] = magnet_updated
+        flush_records()
+        if (
+            args.checkpoint_steps > 0
+            and optimizer_step % args.checkpoint_steps == 0
+        ):
+            save_checkpoint(outer_step)
 
-    write_records(metrics_path, records)
-    checkpoint_root.mkdir(parents=True, exist_ok=True)
-    policy.save_pretrained(policy_source if args.resume else checkpoint_root / "policy", safe_serialization=True)
-    magnet.save_pretrained(magnet_source if args.resume else checkpoint_root / "magnet", safe_serialization=True)
-    tokenizer.save_pretrained(checkpoint_root / "policy")
-    tokenizer.save_pretrained(checkpoint_root / "magnet")
-    temporary_state = checkpoint_root / "state.pt.tmp"
-    torch.save(
-        {
-            "completed_steps": optimizer_step,
-            "completed_outer_rounds": outer_rounds,
-            "optimizer": optimizer.state_dict(),
-            "torch_rng_state": torch.get_rng_state(),
-            "cuda_rng_state_all": torch.cuda.get_rng_state_all(),
-        },
-        temporary_state,
-    )
-    temporary_state.replace(state_path)
+    save_checkpoint(outer_rounds)
     update = parameter_update(before, tensor, name=name)
     (args.output / "parameter_update.json").write_text(
         json.dumps(update, indent=2, sort_keys=True) + "\n"

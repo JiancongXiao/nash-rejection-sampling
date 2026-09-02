@@ -125,3 +125,33 @@ three one-GPU evaluation jobs.  Each uses greedy generation, a 512-token cap,
 the same preference oracle, and 10,000 bootstrap replicates.  Selection
 results are kept under each seed's `evaluation/` directory and are not final
 test results.
+
+## Llama-3.1-8B, 8192-prompt Main run
+
+The Llama family replication uses `meta-llama/Llama-3.1-8B-Instruct`, seed 47,
+the same frozen 8192-prompt UltraFeedback subset as the Qwen 7B run, LoRA
+rank/alpha 16/32, and the four narrow-NLHF methods `Nash-RS`, `Nash-MD`, `MPO`,
+and `EGPO`.  Its result namespace is independent of every Qwen run.
+
+Llama is gated on Hugging Face.  Before the first submission, accept Meta's
+license and place a read token at `~/.cache/huggingface/token` (or set
+`HF_TOKEN_PATH`).  The submitter automatically launches the cache job when no
+complete local snapshot exists:
+
+```bash
+bash cluster/hopper/main/submit_llama3p1_8b_lora_8192_seed47.sh
+```
+
+The Llama Nash-MD entry is mathematically identical to TRL's geometric
+mixture, but maintains separate policy/reference KV caches and shares the
+frozen base model through PEFT's disabled-adapter reference.  MPO streams
+metrics after every outer round and writes a restartable checkpoint every 512
+optimizer steps.  All four jobs request one H200 for at most 144 hours.
+
+After all four run manifests verify nonzero parameter updates, submit the
+shared-base plus four-method fixed evaluation by passing the completed job IDs:
+
+```bash
+bash cluster/hopper/main/submit_llama3p1_8b_8192_eval.sh \
+  47 NASH_RS NASH_MD MPO EGPO
+```
