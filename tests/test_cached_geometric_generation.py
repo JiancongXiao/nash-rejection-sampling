@@ -6,6 +6,58 @@ import unittest
 
 
 class CachedGeometricGenerationTest(unittest.TestCase):
+    def test_tiny_llama_peft_model_supports_dual_cache(self) -> None:
+        try:
+            import torch
+            from peft import LoraConfig, get_peft_model
+            from transformers import GenerationConfig, LlamaConfig, LlamaForCausalLM
+        except ImportError:
+            self.skipTest("Main torch/transformers/peft environment is required")
+        from nashrs.cached_geometric_generation import cached_geometric_generate
+
+        base = LlamaForCausalLM(
+            LlamaConfig(
+                vocab_size=32,
+                hidden_size=16,
+                intermediate_size=32,
+                num_hidden_layers=1,
+                num_attention_heads=2,
+                num_key_value_heads=1,
+                max_position_embeddings=64,
+                bos_token_id=1,
+                eos_token_id=31,
+                pad_token_id=0,
+            )
+        )
+        model = get_peft_model(
+            base,
+            LoraConfig(
+                r=2,
+                lora_alpha=4,
+                target_modules="all-linear",
+                task_type="CAUSAL_LM",
+            ),
+        )
+        model.eval()
+        input_ids = torch.tensor([[1, 4, 7]])
+        output = cached_geometric_generate(
+            model,
+            input_ids,
+            torch.ones_like(input_ids),
+            generation_config=GenerationConfig(
+                max_new_tokens=4,
+                temperature=0.9,
+                top_k=0,
+                top_p=1.0,
+                do_sample=True,
+                eos_token_id=31,
+            ),
+            mixture_coef=0.125,
+            generator=torch.Generator().manual_seed(5),
+        )
+        self.assertGreater(output.shape[1], input_ids.shape[1])
+        self.assertLessEqual(output.shape[1], input_ids.shape[1] + 4)
+
     def test_mixture_logits_match_geometric_policy(self) -> None:
         try:
             import torch
@@ -144,4 +196,3 @@ class CachedGeometricGenerationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
