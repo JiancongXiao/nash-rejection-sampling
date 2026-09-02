@@ -44,10 +44,21 @@ def _cached_next_logits(
     *,
     past_key_values=None,
 ):
+    import torch
+
+    if past_key_values is None:
+        cache_position = torch.arange(
+            generated.shape[1], device=generated.device, dtype=torch.long
+        )
+    else:
+        cache_position = torch.tensor(
+            [generated.shape[1] - 1], device=generated.device, dtype=torch.long
+        )
     prepared = model.prepare_inputs_for_generation(
         generated,
         attention_mask=attention_mask,
         past_key_values=past_key_values,
+        cache_position=cache_position,
         use_cache=True,
     )
     outputs = model(**prepared, return_dict=True)
@@ -137,4 +148,3 @@ def cached_geometric_generate(
                 )
 
     return generated
-
