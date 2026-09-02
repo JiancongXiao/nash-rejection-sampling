@@ -147,6 +147,9 @@ one-GPU engineering smokes.  Nash-RS, Nash-MD, MPO, and EGPO each perform two
 real optimizer steps with a 64-token generation cap, LoRA rank/alpha 16/32,
 and an isolated result namespace.  Each job must export step metrics and prove
 a nonzero parameter update before it succeeds.  These are not paper results.
+When all user run slots are occupied, the jobs may be queued before the token
+is installed with `NASHRS_DEFER_GATED_TOKEN_CHECK=1`; the token must still exist
+before the cache job starts.
 
 After all four smokes pass, submit the full 8192-prompt experiment:
 

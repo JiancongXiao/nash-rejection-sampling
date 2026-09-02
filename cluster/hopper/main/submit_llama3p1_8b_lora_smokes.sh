@@ -19,9 +19,14 @@ if compgen -G "$MODEL_CACHE/snapshots/*/config.json" >/dev/null; then
   CACHE_JOB=""
 else
   if [[ -z "${HF_TOKEN:-}" && ! -s "$TOKEN_PATH" ]]; then
-    echo "Llama 3.1 is gated and is not cached." >&2
-    echo "Accept Meta's license and place a Hugging Face read token at: $TOKEN_PATH" >&2
-    exit 2
+    if [[ "${NASHRS_DEFER_GATED_TOKEN_CHECK:-0}" == "1" ]]; then
+      echo "WARNING: queuing the gated-model cache before its token exists." >&2
+      echo "A valid read token must be at $TOKEN_PATH before cache job execution." >&2
+    else
+      echo "Llama 3.1 is gated and is not cached." >&2
+      echo "Accept Meta's license and place a Hugging Face read token at: $TOKEN_PATH" >&2
+      exit 2
+    fi
   fi
   CACHE_JOB="$(qsub cluster/hopper/main/cache_llama3p1_8b.pbs)"
 fi
@@ -47,4 +52,3 @@ done
 
 echo "Cache job: ${CACHE_JOB:-already cached}"
 echo "Submission manifest: $MANIFEST"
-
