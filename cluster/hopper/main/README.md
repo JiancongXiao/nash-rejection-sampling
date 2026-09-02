@@ -139,6 +139,18 @@ license and place a read token at `~/.cache/huggingface/token` (or set
 complete local snapshot exists:
 
 ```bash
+bash cluster/hopper/main/submit_llama3p1_8b_lora_smokes.sh 47
+```
+
+This first launches the cache job when needed, then queues four dependent
+one-GPU engineering smokes.  Nash-RS, Nash-MD, MPO, and EGPO each perform two
+real optimizer steps with a 64-token generation cap, LoRA rank/alpha 16/32,
+and an isolated result namespace.  Each job must export step metrics and prove
+a nonzero parameter update before it succeeds.  These are not paper results.
+
+After all four smokes pass, submit the full 8192-prompt experiment:
+
+```bash
 bash cluster/hopper/main/submit_llama3p1_8b_lora_8192_seed47.sh
 ```
 
