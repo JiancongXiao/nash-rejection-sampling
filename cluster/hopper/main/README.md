@@ -38,6 +38,19 @@ Gradient accumulation is increased from 4 to 16 so the official effective
 global batch size of 32 is unchanged. The one-GPU native-entry smoke only validates
 its published INPO inner update and artifact contract.
 
+For a schedulable single-H200 execution of the same complete pipeline, use:
+
+```bash
+bash cluster/hopper/main/submit_3b_comal_single.sh smoke 47
+```
+
+This changes systems parallelism only: generation and log-probability passes
+run on one GPU, INPO uses one BF16 process instead of FSDP, and gradient
+accumulation is 32 so the effective global batch remains 32.  The candidate
+generation, preference ranking, cached log-probabilities, INPO objective, and
+24 outer iterations are unchanged.  After the smoke succeeds, the single-GPU
+full chain can be submitted with `full` in place of `smoke`.
+
 Before launching all 24 full outer iterations, run the complete two-GPU pipeline
 for one isolated outer iteration:
 

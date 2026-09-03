@@ -16,9 +16,13 @@ NUM_ITERS="${NASHRS_COMAL_NUM_ITERS:-2}"
 PROMPT_BUDGET="${NASHRS_MAIN_PROMPT_BUDGET:-2048}"
 MAX_NEW_TOKENS="${NASHRS_MAIN_GENERATE_MAX_LEN:-512}"
 RUN_KIND="${NASHRS_COMAL_RUN_KIND:-full}"
-NUM_GPUS=2
+NUM_GPUS="${NASHRS_COMAL_NUM_GPUS:-2}"
 GLOBAL_BATCH_SIZE=32
 LOCAL_BATCH_SIZE=1
+if [[ "$NUM_GPUS" != "1" && "$NUM_GPUS" != "2" ]]; then
+  echo "NASHRS_COMAL_NUM_GPUS must be 1 or 2" >&2
+  exit 2
+fi
 ACCUMULATE_STEP="$((GLOBAL_BATCH_SIZE / (NUM_GPUS * LOCAL_BATCH_SIZE)))"
 if [[ "$RUN_KIND" != "full" && "$RUN_KIND" != "smoke" ]]; then
   echo "NASHRS_COMAL_RUN_KIND must be full or smoke" >&2
@@ -38,7 +42,9 @@ if [[ "$RUN_KIND" == "smoke" && ( "$ITER_START" != "0" || "$NUM_ITERS" != "1" ) 
 fi
 
 SCRATCH="/scratch/jiancongxiao"
-if [[ "$RUN_KIND" == "smoke" ]]; then
+if [[ "$RUN_KIND" == "smoke" && "$NUM_GPUS" == "1" ]]; then
+  RESULT_ROOT="$SCRATCH/results/main-native-3b-comal-single-smoke-seed${SEED}/${PBS_JOBID}"
+elif [[ "$RUN_KIND" == "smoke" ]]; then
   RESULT_ROOT="$SCRATCH/results/main-native-3b-comal-small-smoke-seed${SEED}/${PBS_JOBID}"
 else
   RESULT_ROOT="$SCRATCH/results/main-native-3b-full-seed${SEED}/comal"
@@ -53,12 +59,17 @@ MODEL_CACHE="$SCRATCH/cache/huggingface/hub/models--Qwen--Qwen2.5-3B-Instruct"
 IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
 MAIN_VENV="$SCRATCH/venvs/nashrs-main-native-0.1"
 OPENRLHF_VENV="$SCRATCH/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0"
+if [[ "$NUM_GPUS" == "1" ]]; then
+  ACCELERATE_CONFIG="$PBS_O_WORKDIR/configs/accelerate_comal_single.yaml"
+else
+  ACCELERATE_CONFIG="$COMAL_ROOT/fsdp_config.yaml"
+fi
 HF_CACHE="$SCRATCH/cache/huggingface/hub"
 TMP_ROOT="$SCRATCH/tmp/comal-3b-${PBS_JOBID%%.*}"
 CUDA_DRIVER_LIB="$SCRATCH/cuda-driver-lib"
 mkdir -p "$RESULT_ROOT" "$TMP_ROOT" "$CUDA_DRIVER_LIB" "$COMAL_ROOT/ckpts"
 
-for required in "$CONFIG" "$PROMPTS" "$MAIN_VENV/bin/python" "$OPENRLHF_VENV/bin/python" "$COMAL_ROOT/inpo.py"; do
+for required in "$CONFIG" "$PROMPTS" "$ACCELERATE_CONFIG" "$MAIN_VENV/bin/python" "$OPENRLHF_VENV/bin/python" "$COMAL_ROOT/inpo.py"; do
   if [[ ! -e "$required" ]]; then
     echo "Missing full COMAL input: $required" >&2
     exit 3
@@ -111,6 +122,7 @@ echo "Prompt budget: $PROMPT_BUDGET"
 echo "Generation length: $MAX_NEW_TOKENS"
 echo "Global batch size: $GLOBAL_BATCH_SIZE"
 echo "Gradient accumulation steps: $ACCUMULATE_STEP"
+echo "Training parallelism: $NUM_GPUS GPU(s), config $ACCELERATE_CONFIG"
 echo "PBS GPUs: ${CUDA_VISIBLE_DEVICES:-}"
 echo "Physical GPU indices: $GPU_CSV"
 echo "Result root: $RESULT_ROOT"
@@ -216,7 +228,7 @@ for ((ITER=ITER_START; ITER<ITER_START+NUM_ITERS; ITER++)); do
       HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
       TMPDIR="$TMP_ROOT" TOKENIZERS_PARALLELISM=false \
       PYTHONPATH="$COMAL_ROOT:$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
-      "$MAIN_VENV/bin/accelerate" launch --config_file "$COMAL_ROOT/fsdp_config.yaml" \
+      "$MAIN_VENV/bin/accelerate" launch --config_file "$ACCELERATE_CONFIG" \
         --num_processes "$NUM_GPUS" \
         --main_process_port "$((29320 + ITER))" \
         "$PBS_O_WORKDIR/examples/main/comal_inpo_launch.py" \
@@ -270,4 +282,4 @@ elif (( ITER_START + NUM_ITERS == 24 )); then
       --output "$RESULT_ROOT/run_manifest.json"
 fi
 
-echo "COMAL $RUN_KIND 3B small-queue segment completed: iterations $ITER_START..$((ITER_START + NUM_ITERS - 1))"
+echo "COMAL $RUN_KIND 3B ${NUM_GPUS}-GPU segment completed: iterations $ITER_START..$((ITER_START + NUM_ITERS - 1))"

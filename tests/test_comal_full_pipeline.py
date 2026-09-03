@@ -20,6 +20,26 @@ from examples.main.comal_full_pipeline import (
 
 
 class ComalFullPipelineTest(unittest.TestCase):
+    def test_single_gpu_job_preserves_effective_global_batch(self):
+        root = Path(__file__).resolve().parents[1]
+        job = (root / "cluster/hopper/main/main_3b_comal_full.pbs").read_text()
+        submitter = (
+            root / "cluster/hopper/main/submit_3b_comal_single.sh"
+        ).read_text()
+        accelerate = (
+            root / "configs/accelerate_comal_single.yaml"
+        ).read_text()
+
+        self.assertIn('NUM_GPUS="${NASHRS_COMAL_NUM_GPUS:-2}"', job)
+        self.assertIn(
+            'ACCUMULATE_STEP="$((GLOBAL_BATCH_SIZE / (NUM_GPUS * LOCAL_BATCH_SIZE)))"',
+            job,
+        )
+        self.assertIn("NASHRS_COMAL_NUM_GPUS=1", submitter)
+        self.assertIn("ngpus=1:ncpus=12:mem=225GB", submitter)
+        self.assertIn("distributed_type: 'NO'", accelerate)
+        self.assertIn("mixed_precision: bf16", accelerate)
+
     def test_qwen_compatibility_guards_only_missing_tulu_symbols(self):
         data_utils = ModuleType("data_utils")
         qwen_dataset = object()
