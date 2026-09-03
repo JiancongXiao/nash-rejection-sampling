@@ -1,0 +1,106 @@
+#!/bin/bash
+#PBS -P CFP05-CF-001
+#PBS -N q7_nmd_bench
+#PBS -j oe
+#PBS -k oed
+#PBS -l walltime=02:00:00
+#PBS -l select=1:ngpus=1
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+exec > "stdout.${PBS_JOBID}" 2> "stderr.${PBS_JOBID}"
+
+IMAGE="/app1/common/singularity-img/hopper/pytorch/pytorch_2.7.0_cuda_12.8.sif"
+VENV="/scratch/jiancongxiao/venvs/nashrs-main-native-0.1"
+HF_CACHE="/scratch/jiancongxiao/cache/huggingface/hub"
+MODEL_CACHE="$HF_CACHE/models--Qwen--Qwen2.5-7B-Instruct"
+PROMPTS="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_full_v1/train_8192_main_7b_seed47.jsonl"
+CONFIG="$PBS_O_WORKDIR/configs/general_preference_primary.json"
+SOURCE_RUN="/scratch/jiancongxiao/results/main-native-7b-lora-8192-seed47/nash_md/596136.hopper-m-02"
+CHECKPOINT="$SOURCE_RUN/trainer/checkpoint-2560"
+RESULT_ROOT="/scratch/jiancongxiao/results/qwen7b-nash-md-cached-resume-benchmark/${PBS_JOBID}"
+METRICS="$RESULT_ROOT/step_metrics.jsonl"
+mkdir -p "$RESULT_ROOT"
+
+if [[ ! -d "$CHECKPOINT" ]]; then
+  echo "Required source checkpoint is missing: $CHECKPOINT" >&2
+  exit 2
+fi
+MODEL=""
+for candidate in "$MODEL_CACHE"/snapshots/*; do
+  if [[ -f "$candidate/config.json" ]]; then MODEL="$candidate"; break; fi
+done
+if [[ -z "$MODEL" ]]; then
+  echo "No cached Qwen2.5-7B-Instruct snapshot found" >&2
+  exit 3
+fi
+
+module load singularity
+PBS_GPU="${CUDA_VISIBLE_DEVICES:-}"
+if [[ "$PBS_GPU" == GPU-* ]]; then
+  GPU_INDEX="$(nvidia-smi --id="$PBS_GPU" --query-gpu=index --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')"
+else
+  GPU_INDEX="$PBS_GPU"
+fi
+if [[ ! "$GPU_INDEX" =~ ^[0-9]+$ ]]; then
+  echo "Could not map PBS GPU: $PBS_GPU" >&2
+  exit 4
+fi
+
+echo "Benchmark: cached Qwen 7B Nash-MD resume compatibility and throughput"
+echo "Source checkpoint: $CHECKPOINT"
+echo "Target steps: 2561-2564"
+echo "Maximum new tokens: 512"
+echo "Result root: $RESULT_ROOT"
+
+singularity exec --nv "$IMAGE" env \
+  CUDA_VISIBLE_DEVICES="$GPU_INDEX" \
+  HF_HOME="/scratch/jiancongxiao/cache/huggingface" \
+  HUGGINGFACE_HUB_CACHE="$HF_CACHE" \
+  HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  TOKENIZERS_PARALLELISM=false \
+  NASHRS_PREFERENCE_PYTHON="/scratch/jiancongxiao/venvs/nashrs-openrlhf-0.9.3-vllm-0.15.0/bin/python" \
+  NASHRS_PREFERENCE_SIDECAR_LOG="$RESULT_ROOT/preference_sidecar.log" \
+  PYTHONPATH="$PBS_O_WORKDIR/src:$PBS_O_WORKDIR" \
+  "$VENV/bin/python" -m examples.main.trl_nash_md_cached \
+    --method nash_md \
+    --model "$MODEL" \
+    --prompts "$PROMPTS" \
+    --preference-config "$CONFIG" \
+    --output "$RESULT_ROOT" \
+    --steps 2564 \
+    --max-new-tokens 512 \
+    --seed 47 \
+    --lora-rank 16 \
+    --lora-alpha 32 \
+    --lora-dropout 0.05 \
+    --checkpoint-steps 0 \
+    --resume-from-checkpoint "$CHECKPOINT" \
+    --skip-final-save
+
+python3 - "$METRICS" <<'PY'
+import json
+import statistics
+import sys
+
+rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+if [int(row["step"]) for row in rows] != [2561, 2562, 2563, 2564]:
+    raise SystemExit(f"unexpected benchmark steps: {[row.get('step') for row in rows]}")
+seconds = [3600.0 * float(row["gpu_hours"]) for row in rows]
+summary = {
+    "checkpoint_compatible": True,
+    "steps": [2561, 2562, 2563, 2564],
+    "mean_step_seconds": statistics.fmean(seconds),
+    "median_step_seconds": statistics.median(seconds),
+    "max_step_seconds": max(seconds),
+    "projected_5632_step_hours": statistics.fmean(seconds) * 5632 / 3600,
+    "switch_threshold_seconds": 43.5,
+    "faster_than_continuing_old_trainer": statistics.fmean(seconds) < 43.5,
+}
+print(json.dumps(summary, indent=2, sort_keys=True))
+with open(sys.argv[1] + ".benchmark.json", "w") as handle:
+    json.dump(summary, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+
+echo "Qwen 7B cached Nash-MD resume benchmark completed successfully"

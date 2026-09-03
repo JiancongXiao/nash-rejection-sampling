@@ -23,6 +23,7 @@ export NASHRS_MAIN_PROMPTS="/scratch/jiancongxiao/datasets/ultrafeedback_nashrs_
 export NASHRS_RESULTS_NAMESPACE_OVERRIDE="main-native-7b-lora-8192-seed${SEED}/${METHOD}"
 export NASHRS_POLICY_MODEL_ID="Qwen/Qwen2.5-7B-Instruct"
 export NASHRS_POLICY_MODEL_CACHE="/scratch/jiancongxiao/cache/huggingface/hub/models--Qwen--Qwen2.5-7B-Instruct"
+export NASHRS_NASH_MD_MODULE="examples.main.trl_nash_md_cached"
 export NASHRS_TAU="${NASHRS_TAU:-0.5}"
 export NASHRS_MAX_PROPOSALS="${NASHRS_MAX_PROPOSALS:-64}"
 export NASHRS_LORA_RANK=16

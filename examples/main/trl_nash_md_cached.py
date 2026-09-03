@@ -29,6 +29,8 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--seed", type=int, default=47)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--resume-from-checkpoint", type=Path)
+    parser.add_argument("--skip-final-save", action="store_true")
     parser.add_argument("--checkpoint-steps", type=int, default=512)
     parser.add_argument("--lora-rank", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
@@ -132,27 +134,35 @@ def main() -> None:
 
     name, tensor = first_trainable_tensor(trainer.model)
     before = tensor.detach().float().cpu().clone()
-    checkpoint = (
-        get_last_checkpoint(str(args.output / "trainer")) if args.resume else None
-    )
+    if args.resume and args.resume_from_checkpoint is not None:
+        raise ValueError("use either --resume or --resume-from-checkpoint, not both")
+    checkpoint = args.resume_from_checkpoint
+    if checkpoint is None and args.resume:
+        checkpoint = get_last_checkpoint(str(args.output / "trainer"))
+    if checkpoint is not None:
+        checkpoint = Path(checkpoint)
     if args.resume and checkpoint is None:
         raise FileNotFoundError(
             f"no Trainer checkpoint found under {args.output / 'trainer'}"
         )
-    trainer.train(resume_from_checkpoint=checkpoint)
+    if checkpoint is not None and not checkpoint.is_dir():
+        raise FileNotFoundError(f"resume checkpoint does not exist: {checkpoint}")
+    trainer.train(
+        resume_from_checkpoint=str(checkpoint) if checkpoint is not None else None
+    )
 
     update = parameter_update(before, tensor, name=name)
     (args.output / "parameter_update.json").write_text(
         json.dumps(update, indent=2, sort_keys=True) + "\n"
     )
-    trainer.save_model(str(args.output / "actor_adapter"))
-    unwrapped = trainer.accelerator.unwrap_model(trainer.model)
-    merged = unwrapped.merge_and_unload()
-    merged.save_pretrained(args.output / "actor", safe_serialization=True)
-    tokenizer.save_pretrained(args.output / "actor")
+    if not args.skip_final_save:
+        trainer.save_model(str(args.output / "actor_adapter"))
+        unwrapped = trainer.accelerator.unwrap_model(trainer.model)
+        merged = unwrapped.merge_and_unload()
+        merged.save_pretrained(args.output / "actor", safe_serialization=True)
+        tokenizer.save_pretrained(args.output / "actor")
     print(json.dumps(update, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-
