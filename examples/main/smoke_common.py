@@ -48,6 +48,53 @@ def parameter_update(before, after, *, name: str) -> dict:
     }
 
 
+def snapshot_trainable_parameters(model) -> dict:
+    """Copy all trainable tensors for a robust post-training update check."""
+
+    snapshot = {
+        name: parameter.detach().float().cpu().clone()
+        for name, parameter in model.named_parameters()
+        if parameter.requires_grad
+    }
+    if not snapshot:
+        raise ValueError("model has no trainable parameters")
+    return snapshot
+
+
+def trainable_parameter_update(before: dict, model) -> dict:
+    """Aggregate update statistics across every snapshotted parameter."""
+
+    import math
+    import torch
+
+    current = dict(model.named_parameters())
+    squared_norm = 0.0
+    max_abs_update = 0.0
+    changed_elements = 0
+    num_elements = 0
+    changed_tensors = 0
+    for name, old_value in before.items():
+        if name not in current:
+            raise ValueError(f"trainable parameter disappeared during training: {name}")
+        difference = current[name].detach().float().cpu() - old_value
+        tensor_changed = int(torch.count_nonzero(difference).item())
+        if tensor_changed:
+            changed_tensors += 1
+        squared_norm += float(torch.sum(difference.double().square()).item())
+        max_abs_update = max(max_abs_update, float(difference.abs().max().item()))
+        changed_elements += tensor_changed
+        num_elements += int(difference.numel())
+    return {
+        "tensor": "all_trainable_parameters",
+        "l2_update_norm": math.sqrt(squared_norm),
+        "max_abs_update": max_abs_update,
+        "changed_elements": changed_elements,
+        "num_elements": num_elements,
+        "tensors_checked": len(before),
+        "changed_tensors": changed_tensors,
+    }
+
+
 def render_prompt(tokenizer, prompt: str):
     import torch
 

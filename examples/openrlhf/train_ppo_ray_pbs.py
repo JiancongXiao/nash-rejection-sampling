@@ -58,6 +58,21 @@ def main() -> None:
     import ray
     import torch
 
+    runtime_env = None
+    if os.environ.get("NASHRS_PATCH_OPENRLHF_LORA_SYNC") == "1":
+        from nashrs.openrlhf_lora_sync import (
+            install_openrlhf_lora_vllm_sync_patch,
+        )
+
+        # Patch the driver import and every Ray worker import.  The latter is
+        # required because OpenRLHF constructs ActorPPOTrainer inside a remote
+        # PolicyModelActor process.
+        install_openrlhf_lora_vllm_sync_patch()
+        runtime_env = {
+            "worker_process_setup_hook": install_openrlhf_lora_vllm_sync_patch
+        }
+        print("Enabled PEFT-to-vLLM merged-weight synchronization", flush=True)
+
     pbs_assignment = os.environ.get("NASHRS_PBS_GPU_ASSIGNMENT", original_devices)
     print(f"PBS GPU assignment: {pbs_assignment}", flush=True)
     print(f"vLLM-compatible CUDA_VISIBLE_DEVICES: {visible_devices}", flush=True)
@@ -94,6 +109,7 @@ def main() -> None:
             object_store_memory=4 * 1024**3,
             _node_ip_address="127.0.0.1",
             _temp_dir=str(ray_root),
+            runtime_env=runtime_env,
         )
     finally:
         signal.alarm(0)

@@ -10,9 +10,9 @@ import sys
 from examples.main.smoke_common import (
     build_counting_judge,
     build_metrics_callback,
-    first_trainable_tensor,
     load_prompts,
-    parameter_update,
+    snapshot_trainable_parameters,
+    trainable_parameter_update,
 )
 from nashrs.main_suite import EGPO_SOURCE, validate_optimizer_steps
 
@@ -87,8 +87,7 @@ def main() -> None:
                 task_type="CAUSAL_LM",
             ),
         )
-    name, tensor = first_trainable_tensor(model)
-    before = tensor.detach().float().cpu().clone()
+    before = snapshot_trainable_parameters(model)
     preference = json.loads(args.preference_config.read_text())
     judge = build_counting_judge(preference["components"], tokenizer)
     metrics_path = args.output / "step_metrics.jsonl"
@@ -138,7 +137,7 @@ def main() -> None:
             f"no Trainer checkpoint found under {args.output / 'trainer'}"
         )
     trainer.train(resume_from_checkpoint=checkpoint)
-    update = parameter_update(before, tensor, name=name)
+    update = trainable_parameter_update(before, model)
     (args.output / "parameter_update.json").write_text(
         json.dumps(update, indent=2, sort_keys=True) + "\n"
     )
