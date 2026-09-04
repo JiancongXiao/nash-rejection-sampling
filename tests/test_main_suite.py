@@ -85,6 +85,36 @@ class MainSuiteTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_optimizer_steps(0)
 
+    def test_complete_comal_pipeline_can_export_one_outer_iteration(self) -> None:
+        record = {
+            "step": 1,
+            "loss": 0.25,
+            "learning_rate": 5e-7,
+            "preference_model_calls": 20,
+            "generated_tokens": 123,
+            "gpu_hours": 0.01,
+        }
+        with self.assertRaises(ValueError):
+            validate_step_records([record], expected_steps=1)
+        self.assertEqual(
+            validate_step_records(
+                [record],
+                expected_steps=1,
+                allow_single_outer_iteration=True,
+            ),
+            [record],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = write_smoke_manifest(
+                Path(directory) / "manifest.json",
+                method="comal",
+                records=[record],
+                expected_steps=1,
+                parameter_update={"changed_elements": 7, "l2_update_norm": 0.1},
+                allow_single_outer_iteration=True,
+            )
+        self.assertEqual(manifest["optimizer_steps"], 1)
+
     def test_metrics_and_parameter_update_are_required(self) -> None:
         records = [
             {

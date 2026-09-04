@@ -24,8 +24,16 @@ REQUIRED_STEP_FIELDS = (
 )
 
 
-def validate_step_records(records: Iterable[dict], *, expected_steps: int) -> list[dict]:
-    expected_steps = validate_smoke_steps(expected_steps)
+def validate_step_records(
+    records: Iterable[dict],
+    *,
+    expected_steps: int,
+    allow_single_outer_iteration: bool = False,
+) -> list[dict]:
+    if allow_single_outer_iteration and expected_steps == 1:
+        expected_steps = validate_optimizer_steps(expected_steps)
+    else:
+        expected_steps = validate_smoke_steps(expected_steps)
     values = list(records)
     if len(values) != expected_steps:
         raise ValueError(f"expected {expected_steps} step records, found {len(values)}")
@@ -105,11 +113,16 @@ def write_smoke_manifest(
     records: Iterable[dict],
     expected_steps: int,
     parameter_update: dict,
+    allow_single_outer_iteration: bool = False,
 ) -> dict:
     """Write one machine-checkable success manifest for a Main smoke run."""
 
     spec = get_main_method(method)
-    values = validate_step_records(records, expected_steps=expected_steps)
+    values = validate_step_records(
+        records,
+        expected_steps=expected_steps,
+        allow_single_outer_iteration=allow_single_outer_iteration,
+    )
     changed = int(parameter_update.get("changed_elements", 0))
     update_norm = float(parameter_update.get("l2_update_norm", 0.0))
     if changed <= 0 or update_norm <= 0:

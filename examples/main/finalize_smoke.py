@@ -56,6 +56,11 @@ def main() -> None:
     parser.add_argument("--metrics", required=True, type=Path)
     parser.add_argument("--parameter-update", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--allow-single-outer-iteration",
+        action="store_true",
+        help="Allow one exported record for a complete COMAL outer-iteration smoke.",
+    )
     args = parser.parse_args()
     manifest = write_smoke_manifest(
         args.output,
@@ -66,6 +71,7 @@ def main() -> None:
         ],
         expected_steps=args.steps,
         parameter_update=json.loads(args.parameter_update.read_text()),
+        allow_single_outer_iteration=args.allow_single_outer_iteration,
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))
 
