@@ -211,6 +211,14 @@ def build_preference_oracle(
 ) -> MixtureBTLPreferenceOracle:
     """Build a pinned mixture from JSON-compatible component definitions."""
 
+    if (
+        len(component_configs) == 1
+        and component_configs[0].get("kind") == "egpo_pair"
+    ):
+        from .egpo_pair_oracle import EGPODirectPreferenceOracle
+
+        return EGPODirectPreferenceOracle(component_configs[0], device=device)
+
     components: list[BTLComponent] = []
     for config in component_configs:
         kind = str(config.get("kind", "pair"))

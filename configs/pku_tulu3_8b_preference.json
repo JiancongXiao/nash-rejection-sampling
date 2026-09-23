@@ -1,0 +1,13 @@
+{
+  "name": "EGPO Gemma-2 pair classifier for PKU-SafeRLHF",
+  "components": [
+    {
+      "kind": "egpo_pair",
+      "model": "vectorzhou/gemma-2-2b-it-preference_dataset_mixture2_and_safe_pku-Preference",
+      "revision": "f57f706833b6f6d758afdef3da83613e1f2a042a",
+      "batch_size": 8,
+      "max_length": 1024,
+      "order_seed": 47
+    }
+  ]
+}

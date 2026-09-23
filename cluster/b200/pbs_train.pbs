@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#PBS -N nashrs-train
+#PBS -j oe
+#PBS -l walltime=72:00:00
+#PBS -l select=1:ngpus=8:ncpus=96:mem=1500gb
+#PBS -l place=excl
+set -euo pipefail
+cd "${PBS_O_WORKDIR:?}"
+bash cluster/b200/train_8gpu.sh "$METHOD"
